@@ -1,0 +1,93 @@
+# HingeCtlApp.xcodeproj の定義(XcodeGen。版は、ルートの Mintfile で固定している)。
+# `make generate-xcodeproj` で生成する。生成物は、コミットしない(.gitignore)。
+#
+# GUI は、Packages/ の 3 つのパッケージのソースを、静的ライブラリのターゲットとして直接取り込む
+# (SwiftPM のパッケージ依存にしない理由は README の「ビルドの注意」)。ソースのフォルダは、Xcode の
+# 「フォルダ同期グループ」(syncedFolder)で参照するため、ファイルの追加・削除では、再生成は要らない。
+# ターゲット・ビルド設定を変えたときだけ、この定義を直して再生成する。
+name: HingeCtlApp
+options:
+  xcodeVersion: "27.0"
+  projectFormat: xcode16_0
+  defaultSourceDirectoryType: syncedFolder
+  createIntermediateGroups: false
+  deploymentTarget:
+    macOS: "26.0"
+settings:
+  base:
+    ALWAYS_SEARCH_USER_PATHS: NO
+    # CoreDevice は arm64e 専用。プロジェクトの設定にするので、IDE からもコマンドラインからも、同じようにビルドできる
+    ARCHS: arm64e
+    ONLY_ACTIVE_ARCH: NO
+    SDKROOT: macosx
+    SWIFT_VERSION: "5.0"
+targets:
+  # 静的ライブラリは、リンクする側に `-ObjC` を足す既定になっている。Objective-C のカテゴリは無いので、止める(requiresObjCLinking)。
+  # CoreDevice に依存しない純粋なロジック。ArgumentParser を使う 2 ファイル(CLI 専用)は、取り込まない
+  HingeCtlCore:
+    type: library.static
+    platform: macOS
+    requiresObjCLinking: false
+    sources:
+      - path: ../Packages/HingeCtlCore/Sources/HingeCtlCore
+        excludes: [Commands.swift, Runner.swift]
+    settings:
+      base: { SKIP_INSTALL: YES, DEFINES_MODULE: YES, PRODUCT_MODULE_NAME: HingeCtlCore }
+  # GUI の状態管理。CoreDevice には依存しない
+  HingeCtlAppKit:
+    type: library.static
+    platform: macOS
+    requiresObjCLinking: false
+    sources:
+      - path: ../Packages/HingeCtlAppKit/Sources/HingeCtlAppKit
+    dependencies:
+      - target: HingeCtlCore
+    settings:
+      base: { SKIP_INSTALL: YES, DEFINES_MODULE: YES, PRODUCT_MODULE_NAME: HingeCtlAppKit }
+  # CoreDevice を呼ぶ層。手書きの .swiftinterface(Interfaces/)で読み、CoreDevice の型は外へ出さない
+  HingeCtlDevice:
+    type: library.static
+    platform: macOS
+    requiresObjCLinking: false
+    sources:
+      - path: ../Packages/HingeCtlDevice/Sources/HingeCtlDevice
+    dependencies:
+      - target: HingeCtlCore
+    settings:
+      base:
+        SKIP_INSTALL: YES
+        DEFINES_MODULE: YES
+        PRODUCT_MODULE_NAME: HingeCtlDevice
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/../Interfaces
+        FRAMEWORK_SEARCH_PATHS: /Library/Developer/PrivateFrameworks
+        OTHER_SWIFT_FLAGS: -enable-experimental-feature CheckImplementationOnly
+  HingeCtlApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    dependencies:
+      - target: HingeCtlCore
+      - target: HingeCtlAppKit
+      - target: HingeCtlDevice
+    settings:
+      base:
+        PRODUCT_NAME: HingeCtl
+        PRODUCT_MODULE_NAME: HingeCtlApp
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.HingeCtl
+        # バージョン。CLI(`hingectl --version`。HingeCtlCore の Commands.swift)と同じ値にそろえる
+        MARKETING_VERSION: "0.0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        # 非公開 API と devicectl の起動のため、サンドボックスは使わない
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: YES
+        # アプリアイコン(Sources/AppIcon.icon。ライト/ダークの背景は icon.json の fill で切り替える)
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        FRAMEWORK_SEARCH_PATHS: /Library/Developer/PrivateFrameworks
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) /Library/Developer/PrivateFrameworks
+        OTHER_LDFLAGS: -framework CoreDevice -framework CoreDeviceUtilities

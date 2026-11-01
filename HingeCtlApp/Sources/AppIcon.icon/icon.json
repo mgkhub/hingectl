@@ -1,0 +1,27 @@
+{
+  "fill": {
+    "solid": "srgb:0.93333,0.94118,0.95686,1.00000"
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.04314,0.07059,0.14902,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "glass": false,
+          "image-name": "device.png",
+          "name": "device"
+        }
+      ]
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
