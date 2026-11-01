@@ -1,0 +1,18 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.4
+// swift-module-flags: -target arm64e-apple-macos26.0 -enable-library-evolution -module-name CoreDeviceUtilities
+// ---- 手書きのインターフェース(非公開 API の最小宣言) ----
+// CoreDeviceUtilities.framework のうち、ヒンジ角の購読に使う型だけを宣言している。詳細は CoreDevice 側の同名ファイルを参照。
+import Foundation
+import Swift
+public struct HingeAngleStreamConfig {
+  public init(changeThreshold: Foundation.Measurement<Foundation.UnitAngle>, updateInterval: Swift.Duration)
+}
+public struct DeviceHingeAngleSnapshot {
+  public var angle: Foundation.Measurement<Foundation.UnitAngle> { get }
+  public var mechanicalAngle: Foundation.Measurement<Foundation.UnitAngle> { get }
+  public var isAngleValid: Swift.Bool { get }
+  public var minAngle: Foundation.Measurement<Foundation.UnitAngle> { get }
+  public var maxAngle: Foundation.Measurement<Foundation.UnitAngle> { get }
+  public var timestamp: Swift.Double { get }
+}

@@ -1,0 +1,116 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.4
+// swift-module-flags: -target arm64e-apple-macos26.0 -enable-library-evolution -module-name CoreDevice
+// ---- 手書きのインターフェース(非公開 API の最小宣言) ----
+// CoreDevice.framework は Swift モジュール情報を持たないため、hingectl が使う型・メソッドだけを手で宣言している。
+// シグネチャとプロトコルの要件の並び(ウィットネステーブルのレイアウト)は、バイナリのシンボルと記述子から復元した。
+// 実際の定義と合っていないとクラッシュする。Xcode / OS の更新で変わりうるため、更新後は動作を再確認すること。
+import CoreDeviceUtilities
+import Foundation
+import Swift
+public struct CoreDeviceError : Swift.Error {
+}
+public struct Capability {
+}
+public protocol DeviceCapability {
+  associatedtype ProtocolType
+  associatedtype ImplType
+  static var capability: CoreDevice.Capability { get }
+}
+public protocol DeviceCapabilityProtocol {
+  static var capability: CoreDevice.Capability { get }
+  static var identifier: Swift.String { get }
+  static var identifierSuffix: Swift.String { get }
+  static var priority: Swift.Int { get }
+}
+public struct DeviceMotionManager {
+  public var supportsHingeAngle: Swift.Bool { get }
+  public func monitorHingeAngle(config: CoreDeviceUtilities.HingeAngleStreamConfig) async throws(CoreDevice.CoreDeviceError) -> Swift.AsyncThrowingStream<[CoreDeviceUtilities.DeviceHingeAngleSnapshot], Swift.Error>
+}
+public protocol MonitorMotionProtocol : CoreDevice.DeviceCapabilityProtocol {
+  func motionManager() async throws(CoreDevice.CoreDeviceError) -> CoreDevice.DeviceMotionManager
+}
+public struct MonitorMotionCapability : CoreDevice.DeviceCapability {
+  public typealias ProtocolType = any CoreDevice.MonitorMotionProtocol
+  public typealias ImplType = Swift.AnyObject
+  public static var capability: CoreDevice.Capability { get }
+}
+public enum DeviceOrientation : Swift.String {
+  case portrait
+  case portraitUpsideDown
+  case landscapeLeft
+  case landscapeRight
+  case faceUp
+  case faceDown
+  case unknown
+  public init?(rawValue: Swift.String)
+  public var rawValue: Swift.String { get }
+}
+public enum DeviceOrientationRotationDirection : Swift.String {
+  case left
+  case right
+  public init?(rawValue: Swift.String)
+  public var rawValue: Swift.String { get }
+}
+public struct OrientationInfo {
+  public var currentDeviceOrientation: CoreDevice.DeviceOrientation { get }
+  public var currentDeviceNonFlatOrientation: CoreDevice.DeviceOrientation { get }
+  public var currentDeviceOrientationLocked: Swift.Bool { get }
+}
+public protocol OrientationControl : CoreDevice.DeviceCapabilityProtocol {
+  func currentDeviceOrientation() async throws -> CoreDevice.OrientationInfo
+  func changeDeviceOrientation(_ orientation: CoreDevice.DeviceOrientation) async throws -> CoreDevice.OrientationInfo
+  func rotate(direction: CoreDevice.DeviceOrientationRotationDirection) async throws -> CoreDevice.OrientationInfo
+}
+public struct OrientationControlCapability : CoreDevice.DeviceCapability {
+  public typealias ProtocolType = any CoreDevice.OrientationControl
+  public typealias ImplType = Swift.AnyObject
+  public static var capability: CoreDevice.Capability { get }
+}
+public protocol HIDVendorDefined : CoreDevice.DeviceCapabilityProtocol {
+  func send(usagePage: Swift.UInt16, usage: Swift.UInt16, version: Swift.UInt32, data: Foundation.Data) throws(CoreDevice.CoreDeviceError)
+  func sendBarrier()
+}
+public struct VendorDefinedHIDCapability : CoreDevice.DeviceCapability {
+  public typealias ProtocolType = any CoreDevice.HIDVendorDefined
+  public typealias ImplType = Swift.AnyObject
+  public static var capability: CoreDevice.Capability { get }
+}
+public struct HIDDeviceCapability : CoreDevice.DeviceCapability {
+  public typealias ProtocolType = Swift.AnyObject
+  public typealias ImplType = Swift.AnyObject
+  public static var capability: CoreDevice.Capability { get }
+}
+public struct CapabilityStaticMember<A> {
+}
+extension CoreDevice.CapabilityStaticMember where A : CoreDevice.DeviceCapability {
+  public static var orientationControl: CoreDevice.CapabilityStaticMember<CoreDevice.OrientationControlCapability> { get }
+  public static var hid: CoreDevice.CapabilityStaticMember<CoreDevice.HIDDeviceCapability>.Type { get }
+  public static var monitorMotion: CoreDevice.CapabilityStaticMember<CoreDevice.MonitorMotionCapability> { get }
+}
+public class RemoteDevice {
+  final public var id: Foundation.UUID { get }
+  final public var description: Swift.String { get }
+  public func getImplementation<A>(for: CoreDevice.CapabilityStaticMember<A>) async throws -> A.ProtocolType where A : CoreDevice.DeviceCapability
+}
+public protocol CoreDeviceServiceConnection {
+}
+public struct CoreDeviceService {
+  public static var sharedConnection: any CoreDevice.CoreDeviceServiceConnection { get }
+}
+public enum DeviceVisibilityClass : Swift.String, Swift.Hashable {
+  case `default`
+  case wirelessPairableDevices
+  case devicesBeingProvisioned
+  case simulators
+  public init?(rawValue: Swift.String)
+  public var rawValue: Swift.String { get }
+}
+public final class DeviceManager {
+  public static var shared: CoreDevice.DeviceManager { get }
+  public init(serviceConnection: any CoreDevice.CoreDeviceServiceConnection, allowedDeviceVisibilityClasses: Swift.Set<CoreDevice.DeviceVisibilityClass>)
+  public func allDevices() -> [CoreDevice.RemoteDevice]
+}
+extension CoreDevice.CapabilityStaticMember where A == CoreDevice.HIDDeviceCapability {
+  public static var vendorDefined: CoreDevice.CapabilityStaticMember<CoreDevice.VendorDefinedHIDCapability> { get }
+}
