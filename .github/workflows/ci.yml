@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'docs/**'
+      - 'Tools/**'
+  push:
+    branches: [main, dev]
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - 'docs/**'
+      - 'Tools/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: xcode-27
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup & Initialize Xcode
+        run: |
+          echo "=== Xcode Version ==="
+          xcodebuild -version
+          echo "=== Swift Version ==="
+          swift --version
+          echo "=== Developer Dir ==="
+          xcode-select -p
+          echo "=== Initialize Xcode Developer Components ==="
+          sudo xcodebuild -runFirstLaunch
+
+      - name: Cache Mint packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.mint
+          key: ${{ runner.os }}-mint-${{ hashFiles('Mintfile') }}
+          restore-keys: |
+            ${{ runner.os }}-mint-
+
+      - name: Install Mint
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install mint
+
+      - name: Run Tests (HingeCtlCore & HingeCtlAppKit)
+        run: make test
+
+      - name: Build CLI (hingectl)
+        run: make build
+
+      - name: Smoke Test CLI
+        run: |
+          ./.build/arm64e-apple-macosx/release/hingectl --version
+          ./.build/arm64e-apple-macosx/release/hingectl --help
+
+      - name: Build GUI App (HingeCtl.app)
+        run: make app
+
+      - name: Build Distribution DMG
+        run: make dmg
+
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p artifacts
+          cp .build/arm64e-apple-macosx/release/hingectl artifacts/
+          cp .build/HingeCtl-*.dmg artifacts/
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: hingectl-macos-arm64
+          if-no-files-found: error
+          path: |
+            artifacts/hingectl
+            artifacts/HingeCtl-*.dmg
