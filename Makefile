@@ -24,10 +24,11 @@ build:
 	$(WITH_XCODE) swift build -c release --build-system native --triple $(TRIPLE) $(SWIFTC_TARGET) --product hingectl
 	@echo "Build complete: $(CURDIR)/$(BIN)"
 
-# 純粋なロジックのテスト(arm64。CoreDevice には依存しない)。
-# HingeCtlCore(引数の解釈・計算・解析)。
+# 純粋なロジックのテスト(arm64。CoreDevice には依存しない。Xcode は選択中のものを使う)。
+# HingeCtlCore(引数の解釈・計算・解析)と、HingeCtlAppKit(GUI の状態管理。偽のバックエンドで検証する)。
 test:
 	swift test --package-path Packages/HingeCtlCore
+	swift test --package-path Packages/HingeCtlAppKit
 
 clean:
-	rm -rf .build .tmp Packages/HingeCtlCore/.build Packages/HingeCtlDevice/.build
+	rm -rf .build .tmp Packages/HingeCtlCore/.build Packages/HingeCtlDevice/.build Packages/HingeCtlAppKit/.build
