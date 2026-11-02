@@ -19,13 +19,13 @@ struct SidebarView: View {
                 if let error = store.listError {
                     ContentUnavailableView("Cannot list devices", systemImage: "exclamationmark.triangle", description: Text(error))
                 } else if store.hasLoaded {
-                    ContentUnavailableView(Strings.noDevices, systemImage: "iphone.slash", description: Text(Strings.noDevicesHint))
+                    ContentUnavailableView(.Sidebar.noDevices, systemImage: "iphone.slash", description: Text(.Sidebar.noDevicesHint))
                 }
             }
         }
         .toolbar {
             ToolbarItem {
-                Button(Strings.refresh, systemImage: "arrow.clockwise") { Task { await store.manualRefresh() } }
+                Button(.General.refresh, systemImage: "arrow.clockwise") { Task { await store.manualRefresh() } }
                     .disabled(store.isManualRefreshing)
             }
         }
@@ -41,7 +41,7 @@ private struct DeviceRow: View {
                 Circle().fill(stateColor).frame(width: 8, height: 8)
                 Text(entry.name).font(.headline)
                 if entry.isSimulator {
-                    Text(Strings.simulator)
+                    Text(.General.simulator)
                         .font(.caption2)
                         .padding(.horizontal, 5)
                         .background(.quaternary, in: Capsule())

@@ -82,7 +82,7 @@ screenshots: app
 	/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $(SCREENSHOT_ID)" $(SCREENSHOT_APP)/Contents/Info.plist
 	codesign --force --deep --sign - $(SCREENSHOT_APP)
 	defaults delete $(SCREENSHOT_ID) 2>/dev/null || true
-	$(SCREENSHOT_APP)/Contents/MacOS/HingeCtl --screenshot-mode $(SCREENSHOT_DIR)
+	$(SCREENSHOT_APP)/Contents/MacOS/HingeCtl --screenshot-mode $(SCREENSHOT_DIR) -AppleLanguages '(en)'
 	defaults delete $(SCREENSHOT_ID) 2>/dev/null || true
 
 # project.yml を変えたときと、チェックアウトの直後(生成物はコミットしていない)に要る。ソースファイルの追加・削除は不要。

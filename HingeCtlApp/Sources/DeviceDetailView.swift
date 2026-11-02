@@ -22,7 +22,7 @@ struct DeviceDetailView: View {
                     case .failed(let message):
                         VStack(alignment: .leading, spacing: 8) {
                             Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-                            Button(Strings.retry) { Task { await detail.connect() } }
+                            Button(.General.retry) { Task { await detail.connect() } }
                         }
                     case .ready:
                         if let reason = detail.hingeUnavailableReason {
@@ -51,7 +51,7 @@ struct DeviceDetailView: View {
     }
 
     private var reconnectButton: some View {
-        Button(Strings.reconnect, systemImage: "arrow.triangle.2.circlepath") { Task { await detail.connect() } }
+        Button(.General.reconnect, systemImage: "arrow.triangle.2.circlepath") { Task { await detail.connect() } }
             .disabled(detail.phase == .connecting)
     }
 
@@ -72,10 +72,12 @@ struct DeviceDetailView: View {
                 ProgressView().controlSize(.small)
                 Text(busy).foregroundStyle(.secondary)
             }
-            LabeledContent(Strings.confirmTimeout) {
+            LabeledContent {
                 TextField("", value: $detail.timeout, format: .number)
                     .frame(width: 60)
                     .multilineTextAlignment(.trailing)
+            } label: {
+                Text(.HingeAngle.confirmTimeout)
             }
             .fixedSize()
         }
@@ -84,7 +86,7 @@ struct DeviceDetailView: View {
 
 /// 項目ごとの枠
 struct SectionBox<Content: View>: View {
-    let title: String
+    let title: LocalizedStringResource
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -108,7 +110,7 @@ struct AngleControlView: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        SectionBox(title: Strings.angle) {
+        SectionBox(title: .HingeAngle.title) {
             HStack(alignment: .firstTextBaseline) {
                 if isEditing {
                     HStack(spacing: 2) {
@@ -169,7 +171,7 @@ struct AngleControlView: View {
                     .onTapGesture {
                         startEdit()
                     }
-                    .help(Strings.editAngleHelp)
+                    .help(.HingeAngle.editHelp)
                 }
 
                 if let reading = detail.reading, !reading.isValid {
@@ -188,14 +190,14 @@ struct AngleControlView: View {
             }
             .onAppear { if let angle = detail.reading?.mechanicalAngle { slider = angle } }
             HStack {
-                preset(Strings.close, 0)
-                preset(Strings.half, 90)
-                preset(Strings.open, 180)
+                preset(.HingeAngle.close, 0)
+                preset(.HingeAngle.half, 90)
+                preset(.HingeAngle.open, 180)
             }
             if let error = detail.streamError {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
-                    Button(Strings.reconnect, systemImage: "arrow.triangle.2.circlepath") { Task { await detail.connect() } }
+                    Button(.General.reconnect, systemImage: "arrow.triangle.2.circlepath") { Task { await detail.connect() } }
                         .controlSize(.small)
                 }
             }
@@ -255,8 +257,15 @@ struct AngleControlView: View {
         isFocused = false
     }
 
-    private func preset(_ title: String, _ degrees: Double) -> some View {
-        Button("\(title) (\(Int(degrees))°)") { Task { await detail.setAngle(degrees) } }
+    private func preset(_ title: LocalizedStringResource, _ degrees: Double) -> some View {
+        Button {
+            Task { await detail.setAngle(degrees) }
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                Text("(\(Int(degrees))°)")
+            }
+        }
     }
 }
 
@@ -267,15 +276,15 @@ struct SweepView: View {
     @State private var seconds = 3.0
 
     var body: some View {
-        SectionBox(title: Strings.sweep) {
+        SectionBox(title: .Sweep.title) {
             // 1 行目は区間(プリセットが変えるのは、ここだけ)。2 行目は秒数と実行
             HStack {
-                field(Strings.from, $from)
-                Button(Strings.swap, systemImage: "arrow.left.arrow.right") { swap(&from, &to) }
+                field(.Sweep.from, $from)
+                Button(.Sweep.swap, systemImage: "arrow.left.arrow.right") { swap(&from, &to) }
                     .labelStyle(.iconOnly)
-                    .help(Strings.swap)
-                field(Strings.to, $to)
-                Menu(Strings.presets) {
+                    .help(.Sweep.swap)
+                field(.Sweep.to, $to)
+                Menu(.Sweep.presets) {
                     ForEach(Self.presets, id: \.title) { preset in
                         Button(preset.title) { from = preset.from; to = preset.to }
                     }
@@ -283,12 +292,12 @@ struct SweepView: View {
                 .fixedSize()
             }
             HStack {
-                field(Strings.seconds, $seconds)
+                field(.Sweep.seconds, $seconds)
                 Spacer()
                 if detail.isSweeping {
-                    Button(Strings.stop) { detail.cancelSweep() }
+                    Button(.Sweep.stop) { detail.cancelSweep() }
                 } else {
-                    Button(Strings.start) { detail.sweep(from: from, to: to, seconds: seconds) }
+                    Button(.Sweep.start) { detail.sweep(from: from, to: to, seconds: seconds) }
                 }
             }
         }
@@ -305,9 +314,11 @@ struct SweepView: View {
         ("Close → Half", 0, 90),
     ]
 
-    private func field(_ title: String, _ value: Binding<Double>) -> some View {
-        LabeledContent(title) {
+    private func field(_ title: LocalizedStringResource, _ value: Binding<Double>) -> some View {
+        LabeledContent {
             TextField("", value: value, format: .number).frame(width: 60).multilineTextAlignment(.trailing)
+        } label: {
+            Text(title)
         }
         .fixedSize()
     }
@@ -317,7 +328,7 @@ struct OrientationView: View {
     @Bindable var detail: DeviceDetailStore
 
     var body: some View {
-        SectionBox(title: Strings.orientation) {
+        SectionBox(title: .Orientation.title) {
             HStack {
                 ForEach(OrientationName.allCases, id: \.self) { name in
                     Button(name.rawValue) { Task { await detail.setOrientation(name) } }
@@ -326,8 +337,8 @@ struct OrientationView: View {
                 }
             }
             HStack {
-                Button(Strings.rotateLeft, systemImage: "rotate.left") { Task { await detail.rotate(.left) } }
-                Button(Strings.rotateRight, systemImage: "rotate.right") { Task { await detail.rotate(.right) } }
+                Button(.Orientation.rotateLeft, systemImage: "rotate.left") { Task { await detail.rotate(.left) } }
+                Button(.Orientation.rotateRight, systemImage: "rotate.right") { Task { await detail.rotate(.right) } }
             }
         }
         // 向きは、ヒンジが無いデバイスでも使える(CLI の `orient` / `rotate` と同じ)
@@ -339,7 +350,7 @@ struct PostureView: View {
     @Bindable var detail: DeviceDetailStore
 
     var body: some View {
-        SectionBox(title: Strings.posture) {
+        SectionBox(title: .Posture.title) {
             if let posture = detail.posture {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
                     GridRow {
@@ -368,7 +379,7 @@ struct PostureView: View {
             } else {
                 Text("—").foregroundStyle(.secondary)
             }
-            Button(Strings.refresh, systemImage: "arrow.clockwise") { Task { await detail.refreshPosture() } }
+            Button(.General.refresh, systemImage: "arrow.clockwise") { Task { await detail.refreshPosture() } }
                 .disabled(detail.isBusy)
         }
     }
@@ -379,12 +390,12 @@ struct ScreenshotView: View {
     let log: AppLog
 
     var body: some View {
-        SectionBox(title: Strings.screenshot) {
+        SectionBox(title: .Screenshot.title) {
             HStack {
-                Button(Strings.takeScreenshot, systemImage: "camera") { Task { await detail.takeScreenshot() } }
+                Button(.Screenshot.takeScreenshot, systemImage: "camera") { Task { await detail.takeScreenshot() } }
                 .disabled(detail.isBusy)
                 if let shot = detail.screenshot {
-                    Button(Strings.saveAs) { save(shot.path) }
+                    Button(.Screenshot.saveAs) { save(shot.path) }
                 }
             }
             if let shot = detail.screenshot, let image = NSImage(contentsOfFile: shot.path) {
@@ -393,17 +404,24 @@ struct ScreenshotView: View {
                     .scaledToFit()
                     .frame(maxHeight: 360)
                 // 撮影した時刻(保存の操作の時刻ではない)。保存時の既定のファイル名にも、同じ時刻を使う
-                Text(caption(for: shot))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                caption(for: shot)
             }
         }
     }
 
-    private func caption(for shot: ScreenshotOutput) -> String {
-        guard let date = detail.screenshotDate else { return shot.display }
-        return "\(shot.display) — \(Strings.capturedAt) \(date.formatted(date: .numeric, time: .standard))"
+    @ViewBuilder
+    private func caption(for shot: ScreenshotOutput) -> some View {
+        if let date = detail.screenshotDate {
+            Text(.Screenshot.caption(shot.display, date.formatted(date: .numeric, time: .standard)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        } else {
+            Text(shot.display)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
     }
 
     private func save(_ path: String) {
@@ -449,13 +467,13 @@ struct LogView: View {
                     Image(systemName: "chevron.right")
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .frame(width: 14)
-                    Text(Strings.log).font(.headline)
+                    Text(.Log.title).font(.headline)
                 }
                 .buttonStyle(.plain)
-                .help(isExpanded ? Strings.collapseLog : Strings.expandLog)
+                .help(isExpanded ? .Log.collapse : .Log.expand)
                 Spacer()
                 if isExpanded {
-                    Button(Strings.clear) { log.clear() }.buttonStyle(.link)
+                    Button(.Log.clear) { log.clear() }.buttonStyle(.link)
                 } else if let last = log.lines.last {
                     // 畳んでいても、直近の 1 行は見えるようにする
                     Text(last.text)

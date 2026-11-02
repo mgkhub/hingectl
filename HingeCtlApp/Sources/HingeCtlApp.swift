@@ -23,7 +23,7 @@ struct HingeCtlApp: App {
     }
 
     var body: some Scene {
-        WindowGroup(Strings.appName) {
+        WindowGroup(.General.appName) {
             RootView(store: store)
                 .frame(minWidth: 860, minHeight: 600)
                 .task {

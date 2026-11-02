@@ -21,6 +21,10 @@ settings:
     ONLY_ACTIVE_ARCH: NO
     SDKROOT: macosx
     SWIFT_VERSION: "5.0"
+    # String Catalog から型安全な LocalizedStringResource シンボルを自動生成
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
+    # ビルド時にコンパイラが勝手にコードからキーを抽出して .xcstrings を書き換えるのを防止
+    SWIFT_EMIT_LOC_STRINGS: NO
 targets:
   # 静的ライブラリは、リンクする側に `-ObjC` を足す既定になっている。Objective-C のカテゴリは無いので、止める(requiresObjCLinking)。
   # CoreDevice に依存しない純粋なロジック。ArgumentParser を使う 2 ファイル(CLI 専用)は、取り込まない

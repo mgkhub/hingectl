@@ -13,7 +13,7 @@ struct RootView: View {
                 DeviceDetailView(detail: detail, log: store.log)
                     .id(detail.entry.id)
             } else {
-                ContentUnavailableView(Strings.selectDevice, systemImage: "iphone")
+                ContentUnavailableView(.Sidebar.selectDevice, systemImage: "iphone")
             }
         }
     }
