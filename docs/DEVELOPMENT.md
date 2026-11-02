@@ -4,10 +4,13 @@
 
 - [Xcode の選ばれ方](#xcode-の選ばれ方)
 - [ファイル構成](#ファイル構成)
+- [開発の流れ](#開発の流れ)
 - [テスト](#テスト)
 - [仕組み](#仕組み)
 - [JSON の扱い](#json-の扱い)
 - [GUI の開発](#gui-の開発)
+  - [文言管理(String Catalog)](#文言管理string-catalog)
+  - [スクリーンショットの自動生成](#スクリーンショットの自動生成)
 - [配布用の DMG](#配布用の-dmg)
 - [ビルドの注意](#ビルドの注意)
 
@@ -15,12 +18,8 @@
 
 ## Xcode の選ばれ方
 
-- **ビルド(`make build`)には、Xcode 27.0 以降(Swift 6.4)が必要です。** それ以前の Xcode(Swift 6.4 未満)では、「SDK が Swift 6.4 でビルドされており、コンパイラが対応していない」というエラーで、
-  CoreDevice のモジュールをビルドできず失敗します。27.0 と 27.1 で、ビルドと動作(シミュレータ)が同じことを確認しています。それ以降の Xcode は未確認です(上限は不明)。
-- **実行には、特定の Xcode は要りません。** `hingectl` は CoreDevice を、Xcode の中ではなく、システム共通の
-  `/Library/Developer/PrivateFrameworks/CoreDevice.framework`(651.13.5。Xcode のインストール時に入ります)からリンクします。
-  `list` / `screenshot` / `posture` が呼ぶ `xcrun devicectl` は、環境変数 `DEVELOPER_DIR` または `xcode-select` で選ばれた Xcode のものです
-  (シミュレータと実機(iOS 27.1)のどちらでも、Xcode 27.0 / 27.1 のどちらの devicectl でも、同じ結果になることを確認しています)。
+- **ビルド(`make build`)には、Xcode 27.0 以降(Swift 6.4)が必要です。** それ以前の Xcode では CoreDevice のモジュールをビルドできず失敗します(Xcode 27.0 および 27.1 で動作確認済み)。
+- **実行には、特定の Xcode は要りません。** `hingectl` はシステム共通の `/Library/Developer/PrivateFrameworks/CoreDevice.framework` から動的にリンクします。`xcrun devicectl` は環境変数 `DEVELOPER_DIR` または `xcode-select` で選ばれた Xcode のものが使われます。
 - `make test` は CoreDevice に依存しないため、Xcode 27.0 以降でなくても(選択中の Xcode で)通ります。
 
 `make build` が使う Xcode は、`Scripts/with-xcode.sh` が次の優先順位で決めます(`xcode-select` の選択やインストール済みの Xcode は変更しません)。
@@ -95,12 +94,30 @@ SwiftPM のパッケージが 4 つあります(ルートと、`Packages/` の 3
     Tests/HingeCtlCoreTests/     # Swift Testing
 ```
 
+## 開発の流れ
+
+日常的な開発・修正の典型的な手順です。ビルドとテストはすべて `Makefile` に集約されています。
+
+- **CLI の修正・機能追加**:
+  1. `Packages/HingeCtlCore` や `Sources/hingectl` を編集する。
+  2. `make test` で単体テストを実行する(CoreDevice 不要、arm64 で高速に実行可能)。
+  3. `make build` で実行ファイルをビルドする(arm64e)。
+  4. `.build/arm64e-apple-macosx/release/hingectl --help` やサブコマンドを実行して動作確認する。
+- **GUI アプリの修正・UI 変更**:
+  1. 初回または `project.yml` 変更時は `make generate-xcodeproj` を実行し、Xcode で `HingeCtlApp/HingeCtlApp.xcodeproj` を開く(ソースコードの編集のみなら Xcode を開かずに直接編集しても構いません)。
+  2. `HingeCtlApp/Sources/` や `Packages/HingeCtlAppKit` を編集する。
+  3. `make test` で GUI 状態管理の単体テストを実行する。
+  4. `make app` でビルド、または `make run-app` でアプリを起動して動作確認する。
+  5. 画面の文言を追加・変更した場合は、`HingeCtlApp/Sources/Localization/*.xcstrings` を編集する。
+  6. UI のレイアウトや外観を変更した場合は、`make screenshots` で README 用のスクリーンショットを自動再撮影してコミットする。
+- **実機・シミュレータ通信層(CoreDevice)の修正**:
+  1. `Packages/HingeCtlDevice` を編集する(実機挙動の留意点や待ち時間定数の根拠は [BEHAVIOR.md](BEHAVIOR.md) を参照)。
+  2. `make build` と `make app` の両方が通ることを確認する。
+  3. 起動中のシミュレータまたは接続中の実機で結合動作を確認する。
+
 ## テスト
 
-`make test` で、`HingeCtlCore` と `HingeCtlAppKit` の単体テストを実行します(`swift test --package-path Packages/...`)。対象は、引数の解釈(`parseAsRoot` で、実行せずに解釈だけを検証)、角度の検査、
-向きの回転、`sweep` の計算、`devicectl` の JSON のデコードと実機の選択、ディスプレイの判定、`--json` の出力(バイト列の完全一致)です。
-`HingeCtlAppKit` は、偽のバックエンドで、GUI の状態遷移(接続・起こす・非対応の扱い・ドラッグの間引きと流し切り・範囲外の入力・失敗)を検証します。
-CoreDevice を呼ぶ部分(ヒンジ角・向きの読み書き)と `devicectl` の実行、SwiftUI の見た目は、実機が要るため、単体テストの対象外です(実機で確認します)。
+`make test` で、`HingeCtlCore`(引数の解釈・計算・JSON 入出力)と `HingeCtlAppKit`(モックを用いた GUI 状態管理)の単体テストを実行します(`swift test --package-path Packages/...`)。CoreDevice を呼ぶ処理や実機・シミュレータに依存する部分は単体テストの対象外です(実機で確認します)。
 
 GitHub Actions の CI(`.github/workflows/ci.yml`)では、PR や main へのプッシュ時に、macOS 27 ランナー上で `make test`、CLI のビルド(`make build`)とスモークテスト(`--version` / `--help`)、GUI アプリのビルド(`make app`)、配布用 DMG 作成(`make dmg`)が自動実行され、ビルド成果物がアーティファクトとして保存されます。
 
@@ -129,11 +146,8 @@ Swift モジュール情報を持ちません。そこで次の方法で直接�
 
 JSON は、`JSONSerialization` と `[String: Any]` ではなく、`Decodable` / `Encodable` の構造体で扱います(キー名と型をコンパイルで保証)。
 
-- **読む側**(`devicectl list devices` / `device info displays`): `DevicectlModels.swift` の DTO で読み、ドメインの型(`DeviceEntry` / `DisplayState`)に変換します。
-  読み方は寛容です。型が違う・欠けた・`null` の項目だけが既定値になり、未知のキーは無視し、配列の壊れた要素だけが除外されます(`Lossy`)。
-- **出力側**(`--json`): `JSONOutput.swift` の `Encodable` で、1 行・キー辞書順に出します。値が無い項目は、省略せず `null` で出します(`encodeNil`)。
-- 小数は最短の表記になります(`119.96`。以前の実装は `119.95999999999999` と出していました。値は同じ Double です)。整数の値は `180` のように出ます。
-- 注意: `IOCFSerialize` に渡す HID のペイロード(`DeviceAccess.swift` の `[String: Any]`)は、JSON ではなくプロパティリストのため、辞書のままです。
+- **読む側**(`devicectl list devices` / `device info displays`): `DevicectlModels.swift` の DTO で読み、ドメインの型(`DeviceEntry` / `DisplayState`)に変換します。未知のキーの無視や欠損値の既定値補完など、寛容にデコードします(`Lossy`)。
+- **出力側**(`--json`): `JSONOutput.swift` の `Encodable` で、1 行・キー辞書順に出力します。値が無い項目は `null` として明示的に出力します(`encodeNil`)。
 
 ## GUI の開発
 
@@ -168,21 +182,12 @@ make screenshots
 - 実機は要りません。`HingeCtl.app` を、起動引数 `--screenshot-mode <出力先>` で起動すると、`LiveBackend` の代わりに `MockBackend`(`HingeCtlApp/Sources/Mock/MockBackend.swift`)が使われます。
   デバイスの一覧・ヒンジ角(118.4°)・posture は固定の値で、何度撮っても、同じ画像になります。
 - `ScreenshotRunner`(`HingeCtlApp/Sources/ScreenshotRunner.swift`)が、1 台目を選んで接続し、ウィンドウを撮影用の大きさにして、ライトとダークの順に撮ります。
-- 設定(ウィンドウの位置・サイドバーの幅・ログ欄の開閉)を、普段の HingeCtl の設定に書き込まないよう、`.app` を `.tmp/screenshot-app/` へコピーし、
-  Bundle ID を `com.example.HingeCtl.screenshot` に替えて(別の設定の領域になります)、ad-hoc で署名し直してから実行します。撮影の前後に、その領域は消します。
-  (`CFFIXED_USER_HOME` を替える方法は、効きませんでした。cfprefsd が、実際のホームに書くためです。)
-- **撮影には、1040×800 pt 以上の表示領域が要ります。** ウィンドウは 1040×800 pt に固定で、画面の表示領域(メニューバーと Dock を除く)がこれより小さいと、
-  下の項目が切れた画像を書かず、エラーで止まります。
-- **撮影中は、画面全体を、単色のウィンドウ(ライトは白、ダークは黒)が覆います(数秒)。** サイドバーは半透明で、背後のデスクトップや他のウィンドウを透かすため、
-  背後を固定しないと、実行のたびに画像が変わり、背後の内容も映り込みます。撮影用のウィンドウは、アプリのウィンドウの真後ろに置くので、他のアプリのウィンドウは、さらにその後ろになります。
-- **画像は、撮った Mac に少し依存します。** PNG の画素数は、ディスプレイの倍率(1x なら 1040×800、Retina なら 2 倍)で変わります。
-  サイドバーの選択色は、その Mac のアクセントカラーです。別の環境で撮り直すと、画像の差分が出ます。
-- 画面の文言(`Localization/*.xcstrings`)は、撮影用に変えません(実画面のまま。撮影時は `-AppleLanguages '(en)'` で英語表示を強制)。UI を変えたら、`make screenshots` で撮り直して、画像もコミットしてください。
-- **撮り方**: ウィンドウサーバーが合成した、自分のウィンドウの画像を使います(`CGWindowListCreateImage`)。
-  - `NSView.cacheDisplay` や `CALayer.render` は、SwiftUI のリストとスクロール領域が空白になるため、使えませんでした。
-  - ScreenCaptureKit は、自分のウィンドウでも、画面収録の許可を求めます(許可が無いと失敗します)。
-  - `CGWindowListCreateImage` は、SDK では使用不可と宣言されているため、実行時に `dlsym` で探して呼びます。システムからは、まだ消えていません。
-    将来の macOS で消えたときは、ScreenCaptureKit に替えてください(その場合は、`make screenshots` を実行するアプリに、画面収録の許可が要ります)。
+- 設定(ウィンドウ位置やログ欄開閉)が普段の環境に影響しないよう、`.tmp/screenshot-app/` へコピーし Bundle ID を替えて隔離実行します。
+- **撮影には 1040×800 pt 以上の表示領域が必要です**(ウィンドウサイズ固定のため、下回るとエラー終了します)。
+- **撮影中は画面を単色ウィンドウが覆います(数秒)**: 半透明サイドバーへのデスクトップ映り込みを防ぎ、背景色を固定するためです。
+- **画像の環境依存**: Retina 環境では 2x の画素数になり、サイドバーの選択色には実行環境のアクセントカラーが反映されます。
+- 画面の文言(`Localization/*.xcstrings`)は実画面のまま変更せず、起動引数 `-AppleLanguages '(en)'` で英語表示を強制します。UI を変更した際は `make screenshots` で撮り直してコミットしてください。
+- **撮り方**: 画面収録の許可ダイアログを回避して直接キャプチャするため、`dlsym` 経由で `CGWindowListCreateImage` を呼び出しています。
 
 ## 配布用の DMG
 
@@ -195,12 +200,10 @@ make dmg    # → .build/HingeCtl-<バージョン>.dmg(バージョンは、ア
   背景画像は、`Scripts/dmg/background.svg` から `sips` で作ります。
 - 署名は ad-hoc で、公証はしません。インターネットで配ると、受け取った人の Mac では、Gatekeeper の確認(右クリックの「開く」など)が要ります。
   確認なしで開けるようにするには、Developer ID での署名と、公証(`notarytool`・`stapler`)が要ります。
-- 背景は 1x の PNG(660×400)で、Retina では少しぼやけます。高解像度にするには、背景のファイル名(エイリアスの指す先)を変えずに、画像だけを大きくする方法を、別に考える必要があります。
 
 ### ウィンドウの見た目(`.DS_Store` のテンプレート)
 
-アイコンの位置・ウィンドウの大きさ・背景画像は、Finder が `.DS_Store` から読みます。`make dmg` は、作成済みの `Scripts/dmg/DS_Store` を、毎回コピーするだけです。
-ビルド時にはライブラリも書き込み用のコードも不要です。
+アイコンの位置・ウィンドウの大きさ・背景画像は、Finder が `.DS_Store` から読みます。`make dmg` は、作成済みの `Scripts/dmg/DS_Store` をコピーして使います。
 
 | 項目 | 値 |
 | --- | --- |
@@ -210,20 +213,12 @@ make dmg    # → .build/HingeCtl-<バージョン>.dmg(バージョンは、ア
 | ウィンドウ(上・左・下・右) | 120, 120, 520, 780(ウィンドウは 660×400) |
 | 表示 | アイコン表示。背景は画像 `.background/background.png` |
 
-- **背景画像の指し方**: `icvp` レコードの `backgroundImageAlias`(Carbon のエイリアス)で、`.background/background.png` を指します(Finder は、ブックマークのデータを受け付けません)。
-  エイリアスは、ボリューム名・ファイルのパスなどを含みます。テンプレートは、別に作った DMG(ボリュームの作成日時が違う)でも、背景が出ることを、Finder で確かめてあります。
-  これは、Finder の、文書化されていない挙動に頼っています。macOS の更新で効かなくなったら、テンプレートを作り直してください。
-- **作り直すとき**(レイアウトや背景のファイル名・ボリューム名を変えたときも):
-  1. 上の表の内容で、書き込み可能な DMG(`hdiutil create -format UDRW`)を作って、マウントする。背景画像は、`.background/background.png` に置いておく。
-  2. マウント中のボリュームに、`.DS_Store` を書く。方法は、どちらでも構いません。
-     - Finder で、ウィンドウを開き、アイコンの位置・大きさ・背景を、手で設定する(Finder が `.DS_Store` を書く)。
-     - `.DS_Store` を書けるライブラリを、使い捨てのフォルダ(`.tmp` など)で使う。今回は、[sindresorhus/DSStore](https://github.com/sindresorhus/DSStore) 1.0.0 で作りました。
-       `setIconPosition`・`setWindowBounds`・`setViewStyle(.iconView)`・`setBackgroundPicture(imageURL:relativeTo:)` を呼んで、`write(to:)` します。
-       背景のエイリアスは、ボリュームが**マウント中**でないと、正しく作れません。このライブラリは、プロジェクトの依存ではありません。
-  3. できた `.DS_Store` を、`Scripts/dmg/DS_Store` に置き換える。
-  4. `make dmg` で DMG を作り、Finder で開いて、見た目を確かめる(アイコンの位置・ウィンドウの大きさ・背景)。
-- **中身の確認**: `.DS_Store` は、`Bud1` のヘッダを持つ、Buddy アロケータと B 木の形式です(Apple は仕様を公開していません)。
-  `Iloc`(アイコンの位置)、`fwi0`(ウィンドウの大きさ)、`icvp`(表示の設定と背景)、`vstl`(表示の種類)の 4 種類のレコードが入っています。
+- **背景画像の参照**: `backgroundImageAlias`(Carbon エイリアス)で `.background/background.png` を指しています。
+- **テンプレートの作り直し**(レイアウトやボリューム名を変える場合):
+  1. 書き込み可能な DMG(`hdiutil create -format UDRW`)を作成してマウントし、背景画像を配置する。
+  2. Finder で手動設定するか、あるいは [sindresorhus/DSStore](https://github.com/sindresorhus/DSStore) などのツールを用いてマウント中のボリュームに `.DS_Store` を書き込む。
+  3. 作成した `.DS_Store` を `Scripts/dmg/DS_Store` に上書きする。
+  4. `make dmg` で DMG を再生成し、Finder で表示を確認する。
 
 ## ビルドの注意
 
@@ -239,13 +234,11 @@ make dmg    # → .build/HingeCtl-<バージョン>.dmg(バージョンは、ア
 - **`-Xswiftc -target -Xswiftc arm64e-apple-macosx26.0` を足している理由**: swift-argument-parser は `platforms` を宣言していないため、`--triple` の
   macOS 26.0 が伝わらず、macOS 12.0 向けにビルドされます。すると arm64e のクラスのポインタ署名(`class_ro`)が、ほかのモジュールと食い違い、
   ld が `class_ro_t pointer signing` の警告を出して、署名フラグを落とします(動作はしますが、保護が弱まります)。`-Xswiftc -target` で、依存を含む全モジュールを
-  26.0 に揃えると、警告は出ず、全モジュールが署名ありになります。`-Xswiftc -Xfrontend -Xswiftc -sign-class-ro` で署名を強制する方法は、起動直後に SIGBUS で落ちるため、使えません。
+  26.0 に揃えると、警告は出ず、全モジュールが署名ありになります。
 - **GUI は Xcode プロジェクトで、ソースを直接取り込んでいます**: Xcode のパッケージ依存のターゲットは、プロジェクトの `ARCHS`(arm64e)を無視して arm64 でビルドされ、
   arm64e 専用の CoreDevice のインターフェースを読めずに失敗します(コマンドラインで `ARCHS=arm64e` を渡せば通りますが、IDE からは通りません)。
   そこで、`Packages/` のソースのフォルダを、静的ライブラリのターゲットとして取り込み、`ARCHS = arm64e` をプロジェクトの設定にしています。
   同じソースを、SwiftPM(CLI)と Xcode(GUI)の 2 つのビルドが作るため、`make app` と `make build` の両方が通ることを確かめてください。
   CoreDevice は、`HingeCtlDevice` の中だけで `@_implementationOnly import` し、GUI のコードには出しません。
 - **`native` のビルドは、依存パッケージにソースファイルを追加しても変更を検出できないことがあります**(`cannot find ... in scope` になります)。`make clean` してから、ビルドし直してください。
-- **`native` は deprecated です**(「将来のリリースで削除される」という警告が出ます)。削除されると `make build` は動かなくなります。
-  以前は、`swiftc` を直接呼ぶ手順を代替として確認していましたが、swift-argument-parser を導入したため、その手順はそのままでは使えません
-  (Core のソースが `import ArgumentParser` するため、ArgumentParser も同じ方法でビルドして、リンクする必要があります)。代替の手順は、まだ確認していません。
+- **`--build-system native` は deprecated です**: 将来のリリースで削除される予定のため、削除された場合は別のビルド手法への移行が必要です。
