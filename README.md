@@ -16,6 +16,7 @@ CLI と GUI。実機にも、起動中のシミュレータにも、同じ操作
 ![Xcode](https://img.shields.io/badge/Xcode-27.0%2B-147EFB?style=flat-square&logo=xcode&logoColor=white)
 ![arch](https://img.shields.io/badge/arch-arm64e-555555?style=flat-square)
 ![private API](https://img.shields.io/badge/API-private-critical?style=flat-square)
+[![CI](https://github.com/mgkhub/hingectl/actions/workflows/ci.yml/badge.svg)](https://github.com/mgkhub/hingectl/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 [クイックスタート](#クイックスタート) ·
@@ -206,7 +207,7 @@ hingectl sweep 0 180 3 -d <UDID>                     # シミュレータでも�
 | --- | --- |
 | 1 台(実機 1 台、またはシミュレータ 1 台) | それを対象にする |
 | 2 台以上(実機とシミュレータの混在、同種が複数、など) | **端末なら、番号を選ばせる**(標準エラーに候補を表示し、標準入力から読む。`q` で中止)。端末でない(パイプ・スクリプトなど)場合は、入力待ちで止まらず、候補を示して終了コード 1 のエラー |
-| 0 台 | 切断中のデバイスを起こして調べ直す(下の「接続状態と、切断中のデバイス」)。それでも 0 台なら、エラー(接続中のデバイスを示す)。`screenshot` などでも、`-d` が必要 |
+| 0 台 | 切断中のデバイスを起こして調べ直す(下の「接続状態と、切断中のデバイス」)。それでも 0 台なら、エラー(接続中のデバイスを示す。ヒンジ非対応のデバイスで `screenshot` などヒンジ不要のコマンドを実行する場合も、`-d` による明示的な指定が必要) |
 
 ```text
 $ hingectl get
@@ -250,7 +251,7 @@ Select a device [1-2] (q to cancel): 2
 `-d` で明示すれば、選べます。
 
 - ヒンジを使うコマンド(`set` / `open` / `close` / `half` / `sweep` / `get` / `watch`)は、**何も送らずに**エラーです(`<name> does not support the hinge`。`-t 0` でも同じ)。
-- ヒンジを使わないコマンド(`screenshot` / `rotate` / `orient` / `orientation` / `posture`)は、実行できます。`posture` は、読めない項目(角度など)を `unavailable`(JSON は `null`)として、読めたものを表示します。向き・ディスプレイが読めない場合は、標準エラーに警告を出します。**ヒンジ対応のデバイスでは、角度・向き・ディスプレイのどれかが読めなければエラー**(終了コード 1。読めた項目も出力されません)です。`unavailable`(JSON は `null`)の角度は、ヒンジ非対応のデバイスだけです。ヒンジに対応しているかどうかの問い合わせ自体が失敗した場合も、対応デバイスと同じく厳格に扱い、警告を出します(一時的な失敗を、非対応として黙って省かないため)。
+- ヒンジを使わないコマンド(`screenshot` / `rotate` / `orient` / `orientation` / `posture`)は、実行できます。`posture` は、読み取れない項目(角度など)を `unavailable`(JSON では `null`)として、読み取れた項目のみを表示します(向きやディスプレイが読めない場合は標準エラーに警告を出力)。一方、**ヒンジ対応のデバイスでは、角度・向き・ディスプレイのいずれかが読めなければエラー**(終了コード 1。読めた項目も出力されません)です。`unavailable`(JSON では `null`)の角度は、ヒンジ非対応のデバイスだけです。ヒンジに対応しているかどうかの問い合わせ自体が失敗した場合も、一時的な通信障害などを安易に非対応と見なさないよう、対応デバイスと同様に厳格に扱って警告を出します。
 
 </details>
 
@@ -270,22 +271,22 @@ Select a device [1-2] (q to cancel): 2
 make run-app    # ビルドして起動(Xcode 27.0 以降。CLI と同じく、Scripts/with-xcode.sh が Xcode を決める)
 ```
 
-| 画面 | CLI |
+| 画面 (GUI) | CLI |
 | --- | --- |
-| ヒンジ角の表示(購読で常時更新、センサー角の併記)・数値の直接入力・スライダー・Close / Half / Open | `watch` / `set` / `open` / `half` / `close` |
-| Sweep(From / To / Seconds、途中で停止できる) | `sweep` |
-| 向き(4 つ)・Rotate Left / Right | `orient` / `rotate` / `orientation` |
-| Posture(角度・向き・ディスプレイ) | `posture` |
-| Screenshot(プレビュー・保存) | `screenshot` |
-| 確認のタイムアウト(0 なら確認せずに送る) | `-t` |
+| **Hinge angle**: 角度の表示(常時更新、`(sensor: …)` 併記)・数値の直接入力・スライダー・プリセット(`Close (0°)` / `Half (90°)` / `Open (180°)`) | `watch` / `set` / `open` / `half` / `close` |
+| **Sweep**: `From` / `To` / `Presets` / `Seconds`・`Start` / `Stop`(途中で停止可能) | `sweep` |
+| **Orientation**: 4 つの向き(`portrait` / `landscape-left` / `landscape-right` / `portrait-upside-down`)・`Rotate Left` / `Rotate Right` | `orient` / `rotate` / `orientation` |
+| **Posture**: `Angle` / `Orientation` / `Display` の表示・更新(`Refresh`) | `posture` |
+| **Screenshot**: `Take Screenshot`・プレビュー表示・保存(`Save As…`) | `screenshot` |
+| **Confirm timeout (s)**: 確認のタイムアウト秒数(0 なら確認せずに送る) | `-t` |
 
 - **CLI と同じ規則**: ヒンジを使う操作は、`supported` のデバイスだけで使えます(非対応・不明のデバイスでは、理由を表示して無効にします)。
   `posture` と `screenshot` は、非対応のデバイスでも使えます。値の範囲(角度 0〜180、タイムアウト・sweep の秒数 0〜3600)は、CLI と共通です(`HingeLimits`)。
-- **ヒンジ角の入力**: スライダー操作のほか、角度の数値部分をクリックしてキーボードから数値を直接入力・設定できます(全角数字の半角自動正規化・範囲チェックつき)。物理角とセンサー角に差がある場合は `(sensor: ...)` を併記します。
+- **ヒンジ角の入力 (Hinge angle)**: スライダー操作のほか、角度の数値部分をクリックしてキーボードから数値を直接入力・設定できます(全角数字の半角自動正規化・範囲チェックつき)。物理角とセンサー角に差がある場合は `(sensor: …°)` を併記します。
 - **切断中のデバイス**: 選ぶと、CLI と同じく、接続を張ってから開きます。つながらない(`unavailable`)デバイスは、選べません。
 - **切れたあとの復帰**: 購読が切れたとき(切断・スリープなど)や、対応の問い合わせが失敗したままのときは、「Reconnect」ボタンが出ます。開き直し(切断中なら起こす)で復帰します。購読が切れたあとの角度は、古い値なので、薄く表示します。
 - **スライダー**: ドラッグ中は約 60Hz に間引いて送り、ドラッグを離したときに、最後の値を送って流し切ります。プリセットのボタンは、`set` と同じく、到達を確認します。
-- **ログ欄**: 接続中の表示などのメッセージ、警告、操作の失敗が出ます。
+- **ログ欄 (Log)**: 接続中の表示などのメッセージ、警告、操作の失敗が出ます(展開・折りたたみ、Clear に対応)。
 
 ## ドキュメント
 

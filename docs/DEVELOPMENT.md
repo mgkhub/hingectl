@@ -65,7 +65,7 @@ SwiftPM のパッケージが 4 つあります(ルートと、`Packages/` の 3
       HingeCtlApp.swift          # @main。ログの出力先(HingeLog.sink)を、ログ欄につなぐ
       LiveBackend.swift          # HingeBackend の実体(HingeCtlDevice を呼ぶ)
       RootView / SidebarView / DeviceDetailView.swift   # 画面
-      Strings.swift              # 画面の文言(英語)
+      Localization/              # 画面の文言(String Catalog: General, Sidebar, HingeAngle など 8 つの .xcstrings)
       Mock/MockBackend.swift     # 撮影用の偽のバックエンド(--screenshot-mode のときだけ使う。固定のデータ)
       ScreenshotRunner.swift     # README 用のスクリーンショットを自動で撮る(make screenshots)
   Packages/HingeCtlAppKit/       # GUI の状態管理(DeviceStore / DeviceDetailStore / AppLog / HingeBackend)。CoreDevice に依存せず、arm64 で swift test
@@ -101,6 +101,8 @@ SwiftPM のパッケージが 4 つあります(ルートと、`Packages/` の 3
 向きの回転、`sweep` の計算、`devicectl` の JSON のデコードと実機の選択、ディスプレイの判定、`--json` の出力(バイト列の完全一致)です。
 `HingeCtlAppKit` は、偽のバックエンドで、GUI の状態遷移(接続・起こす・非対応の扱い・ドラッグの間引きと流し切り・範囲外の入力・失敗)を検証します。
 CoreDevice を呼ぶ部分(ヒンジ角・向きの読み書き)と `devicectl` の実行、SwiftUI の見た目は、実機が要るため、単体テストの対象外です(実機で確認します)。
+
+GitHub Actions の CI(`.github/workflows/ci.yml`)では、PR や main へのプッシュ時に、macOS 27 ランナー上で `make test`、CLI のビルド(`make build`)とスモークテスト(`--version` / `--help`)、GUI アプリのビルド(`make app`)、配布用 DMG 作成(`make dmg`)が自動実行され、ビルド成果物がアーティファクトとして保存されます。
 
 ## 仕組み
 
@@ -139,11 +141,21 @@ JSON は、`JSONSerialization` と `[String: Any]` ではなく、`Decodable` / 
   `.appiconset` では、macOS 向けのダーク用の画像が無視されるため、この形式にしています。絵の元は `HingeCtlApp/Icon/AppIcon.template.svg` だけです。
   変えたときは `Scripts/render-icon.sh` を実行して、`AppIcon-{light,dark}.svg`(README のロゴ)・`AppIcon.icon/icon.json`・
   `AppIcon.icon/Assets/device.png` を、まとめて作り直します(生成物も、コミットします)。ライト/ダークの背景色は、このスクリプトだけが持っています。
-- サンドボックスは使っていません(非公開 API と `xcrun devicectl` の起動のため)。署名は ad-hoc で、配布は想定していません。
+- App Sandbox は有効にしていません(非公開 API の直接呼び出しや `xcrun devicectl` プロセス起動のため)。署名は ad-hoc で、配布は想定していません。
 - Xcode プロジェクト(`HingeCtlApp/HingeCtlApp.xcodeproj`)は、`HingeCtlApp/project.yml` から、[XcodeGen](https://github.com/yonaskolb/XcodeGen) で生成します
   (生成物はコミットしていません。`make app` が、毎回生成します)。XcodeGen の版は、ルートの `Mintfile` で固定しており、[mint](https://github.com/yonaskolb/Mint)
   (`brew install mint`)が要ります。Xcode で開くには、先に `make generate-xcodeproj` を実行してください。
   ソースのフォルダを「フォルダ同期グループ」で参照するため、ソースファイルの追加・削除では、再生成は要りません。ターゲットやビルド設定を変えたときだけ、`project.yml` を直します。
+
+### 文言管理(String Catalog)
+
+画面の表示文言は、Xcode 16 / 27 標準の String Catalog(`HingeCtlApp/Sources/Localization/*.xcstrings`)で管理しています。
+
+- **ファイル分割による名前空間**: 単一の `Localizable.xcstrings` ではなく、セクション・機能ごとに 8 つのカタログファイル(`General`, `Sidebar`, `HingeAngle`, `Sweep`, `Orientation`, `Posture`, `Screenshot`, `Log`)に分割しています。
+- **型安全なシンボル生成**: `HingeCtlApp/project.yml` で `STRING_CATALOG_GENERATE_SYMBOLS: YES` を指定しているため、Xcode がビルド時に `.[TableName].[key]`(例: `.General.appName`、`.HingeAngle.close`)という型安全な enum シンボルを自動生成します(遅延評価の `LocalizedStringResource` / `Text` として渡せる)。
+  - カタログのファイル名は、SwiftUI 標準の型(例: `Angle`)との衝突を避けるため、`HingeAngle.xcstrings` のように固有の UpperCamelCase にしています。
+- **ビルド時の意図しない書き換え防止**: `SWIFT_EMIT_LOC_STRINGS: NO` を指定し、ビルド時にコンパイラが勝手にソースコードからキーを抽出して `.xcstrings` を書き換える(意図しない Git 差分が出る)のを防止しています。
+- **撮影時の言語強制**: スクリーンショット撮影(`make screenshots`)では、多言語環境下でも英語での撮影を保証するため、起動引数に `-AppleLanguages '(en)'` を渡して実行しています。
 
 ### スクリーンショットの自動生成
 
@@ -165,7 +177,7 @@ make screenshots
   背後を固定しないと、実行のたびに画像が変わり、背後の内容も映り込みます。撮影用のウィンドウは、アプリのウィンドウの真後ろに置くので、他のアプリのウィンドウは、さらにその後ろになります。
 - **画像は、撮った Mac に少し依存します。** PNG の画素数は、ディスプレイの倍率(1x なら 1040×800、Retina なら 2 倍)で変わります。
   サイドバーの選択色は、その Mac のアクセントカラーです。別の環境で撮り直すと、画像の差分が出ます。
-- 画面の文言(`Strings.swift`)は、撮影用に変えません(実画面のまま)。UI を変えたら、`make screenshots` で撮り直して、画像もコミットしてください。
+- 画面の文言(`Localization/*.xcstrings`)は、撮影用に変えません(実画面のまま。撮影時は `-AppleLanguages '(en)'` で英語表示を強制)。UI を変えたら、`make screenshots` で撮り直して、画像もコミットしてください。
 - **撮り方**: ウィンドウサーバーが合成した、自分のウィンドウの画像を使います(`CGWindowListCreateImage`)。
   - `NSView.cacheDisplay` や `CALayer.render` は、SwiftUI のリストとスクロール領域が空白になるため、使えませんでした。
   - ScreenCaptureKit は、自分のウィンドウでも、画面収録の許可を求めます(許可が無いと失敗します)。
@@ -188,7 +200,7 @@ make dmg    # → .build/HingeCtl-<バージョン>.dmg(バージョンは、ア
 ### ウィンドウの見た目(`.DS_Store` のテンプレート)
 
 アイコンの位置・ウィンドウの大きさ・背景画像は、Finder が `.DS_Store` から読みます。`make dmg` は、作成済みの `Scripts/dmg/DS_Store` を、毎回コピーするだけです。
-ライブラリも、書き込みのコードも、ビルドには要りません。
+ビルド時にはライブラリも書き込み用のコードも不要です。
 
 | 項目 | 値 |
 | --- | --- |
@@ -233,7 +245,7 @@ make dmg    # → .build/HingeCtl-<バージョン>.dmg(バージョンは、ア
   そこで、`Packages/` のソースのフォルダを、静的ライブラリのターゲットとして取り込み、`ARCHS = arm64e` をプロジェクトの設定にしています。
   同じソースを、SwiftPM(CLI)と Xcode(GUI)の 2 つのビルドが作るため、`make app` と `make build` の両方が通ることを確かめてください。
   CoreDevice は、`HingeCtlDevice` の中だけで `@_implementationOnly import` し、GUI のコードには出しません。
-- **`native` のビルドは、依存パッケージにソースファイルを足しても、気づかないことがあります**(`cannot find ... in scope` になります)。`make clean` してから、ビルドし直してください。
+- **`native` のビルドは、依存パッケージにソースファイルを追加しても変更を検出できないことがあります**(`cannot find ... in scope` になります)。`make clean` してから、ビルドし直してください。
 - **`native` は deprecated です**(「将来のリリースで削除される」という警告が出ます)。削除されると `make build` は動かなくなります。
   以前は、`swiftc` を直接呼ぶ手順を代替として確認していましたが、swift-argument-parser を導入したため、その手順はそのままでは使えません
   (Core のソースが `import ArgumentParser` するため、ArgumentParser も同じ方法でビルドして、リンクする必要があります)。代替の手順は、まだ確認していません。
