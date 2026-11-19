@@ -10,7 +10,7 @@ struct HingeCtlApp: App {
 
     init() {
         let log = AppLog()
-        // 撮影モードは、モックのデータで動く(実機・devicectl には触れない)
+        // 撮影モードは、モックのデータで動く(実機・CoreDevice には触れない)
         if screenshotOutput != nil {
             _store = State(initialValue: DeviceStore(backend: MockBackend(), log: log))
             return

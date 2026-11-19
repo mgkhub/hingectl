@@ -2,7 +2,8 @@
 // swift-compiler-version: Apple Swift version 6.4
 // swift-module-flags: -target arm64e-apple-macos26.0 -enable-library-evolution -module-name CoreDeviceUtilities
 // ---- 手書きのインターフェース(非公開 API の最小宣言) ----
-// CoreDeviceUtilities.framework のうち、ヒンジ角の購読に使う型だけを宣言している。詳細は CoreDevice 側の同名ファイルを参照。
+// CoreDeviceUtilities.framework のうち、ヒンジ角の購読およびスクリーンショット取得に使う型を宣言している。詳細は CoreDevice 側の同名ファイルを参照。
+import CoreGraphics
 import Foundation
 import Swift
 public struct HingeAngleStreamConfig {
@@ -15,4 +16,14 @@ public struct DeviceHingeAngleSnapshot {
   public var minAngle: Foundation.Measurement<Foundation.UnitAngle> { get }
   public var maxAngle: Foundation.Measurement<Foundation.UnitAngle> { get }
   public var timestamp: Swift.Double { get }
+}
+public enum ScreenshotImageFormat : Swift.String, Swift.CaseIterable, Swift.Codable, Swift.Hashable {
+  case png
+  public init?(rawValue: Swift.String)
+  public var rawValue: Swift.String { get }
+}
+public struct CaptureScreenshotOutput {
+  public var image: CoreGraphics.CGImage { get }
+  public var displayUniqueID: Swift.String? { get }
+  public var imageFormat: CoreDeviceUtilities.ScreenshotImageFormat { get }
 }

@@ -1,0 +1,9 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.4
+// swift-module-flags: -target arm64e-apple-macos26.0 -enable-library-evolution -module-name CoreDeviceProtocols
+// ---- 手書きのインターフェース(非公開 API の最小宣言) ----
+import Foundation
+import Swift
+public struct DeviceInfo : Swift.Encodable {
+  public func encode(to encoder: Swift.Encoder) throws
+}

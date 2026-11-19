@@ -1,14 +1,14 @@
 import Foundation
 
-// `devicectl`(公開 CLI)の JSON の解析と、対象のデバイス(実機・起動中のシミュレータ)の選択。
+// デバイス(実機・起動中のシミュレータ)の選択と判定ロジック。
 
-/// 実機か、Mac 上のシミュレータか(`devicectl` の `hardwareProperties.reality`)
+/// 実機か、Mac 上のシミュレータか
 public enum DeviceReality: String, Encodable {
     case physical
     case simulated
 }
 
-/// 接続状態(`devicectl` の `connectionProperties.tunnelState`)。未知の値は、そのまま `other` に持つ。
+/// 接続状態。未知の値は、そのまま `other` に持つ。
 public enum ConnectionState: Equatable, ExpressibleByStringLiteral, Encodable {
     case connected
     case disconnected
@@ -49,25 +49,24 @@ public struct DeviceEntry: Equatable, Encodable {
     public let udid: String
     public let connectionState: ConnectionState
     public var reality: DeviceReality = .physical
-    /// 経路(`devicectl` の `connectionProperties.transportType`。`wired` / `localNetwork` など)。経路が無い(つながらない)ときは nil。
+    /// 経路(`wired` / `localNetwork` など)。経路が無い(つながらない)ときは nil。
     public var transport: String? = nil
-    /// `devicectl` が一覧に載せる、機能の識別子(`capabilities[].featureIdentifier`)。切断中は、一部しか載らない。
+    /// デバイスが備える機能識別子。切断中は一部のみ判定可能。
     public var capabilities: Set<String> = []
     public var isConnected: Bool { connectionState == .connected }
     public var isSimulator: Bool { reality == .simulated }
-    /// 切断中(トンネルがアイドル)だが、経路があり、`devicectl` を呼べば、つながる見込みがあるか。
+    /// 切断中(トンネルがアイドル)だが、経路があり、接続を張ればつながる見込みがあるか。
     /// 経路が無い(`unavailable`)ものと、`sameMachine`(停止中のシミュレータ)は含まない。
     public var isWakeable: Bool {
         guard connectionState == .disconnected, let transport else { return false }
         return transport != "sameMachine"
     }
     /// 向きの遠隔操作の機能(切断中の一覧にも載る)
-    static let orientationControlFeature = "com.apple.coredevice.feature.remote.devicecontrol.orientation"
+    public static let orientationControlFeature = "com.apple.coredevice.feature.remote.devicecontrol.orientation"
     /// ヒンジに対応している**見込み**があるか(起こす順序を決める手がかり)。
-    /// 切断中の一覧には、ヒンジ用の機能(`monitormotion` など)は載らない。実測では、Duo だけが向きの遠隔操作を載せ、
-    /// 経路のある iPad mini・iPad 10th・iPhone 15 Pro・iPhone SE には無かった(SE は、接続中の一覧には載る)。
-    /// ただし、載る条件は分かっておらず、「ヒンジ対応なら必ず載る」とは言えない。そのため、判定には使わず、
-    /// 起こす順序にだけ使う(判定は、接続後の `hingeSupport`)。
+    /// 切断中の状態ではヒンジ用の機能(`monitormotion` など)は載らない。実測では、Duo だけが向きの遠隔操作を載せ、
+    /// 経路のある iPad mini・iPad 10th・iPhone 15 Pro・iPhone SE には無かった(SE は接続中に載る)。
+    /// ただし「ヒンジ対応なら必ず載る」とは言えないため判定には使わず、起こす順序にだけ使う(確定判定は接続後の `hingeSupport`)。
     public var mayHaveHinge: Bool { capabilities.contains(Self.orientationControlFeature) }
 
     /// OS の名前(`iOS` / `iPadOS` など)・バージョン(例: `27.1`)・ビルド(例: `24A94425`)。一覧に無ければ nil。
@@ -100,11 +99,9 @@ public struct DeviceEntry: Equatable, Encodable {
     }
 }
 
-/// `devicectl list devices -q -j -` の出力から、実機と、起動中(接続中)のシミュレータを取り出す。実機が先、シミュレータが後。
-/// 同じ Mac には起動していないシミュレータが大量に並ぶため、起動中のものだけに絞る。
-public func decodeDevices(stdout: Data, stderr: String, label: String) throws -> [DeviceEntry] {
-    let entries = try decodeDevicectl(DeviceList.self, stdout: stdout, stderr: stderr, label: label).devices.compactMap(\.entry)
-    return entries.filter { !$0.isSimulator } + entries.filter(\.isSimulator)
+/// CoreDevice の `RemoteDevice.deviceInfo` の JSON (プロパティリスト形式)から `DeviceEntry` を型安全に復元する。
+public func decodeCoreDeviceRecord(data: Data, capabilities: Set<String> = []) -> DeviceEntry? {
+    (try? JSONDecoder().decode(CoreDeviceInfoRecord.self, from: data))?.entry(capabilities: capabilities)
 }
 
 /// `list` の 1 行。シミュレータには [simulator] を付ける。
@@ -214,13 +211,4 @@ public func selectDevice(
         throw CLIError("\(chosen.name) is not connected (state: \(chosen.connectionState.text))")
     }
     return chosen
-}
-
-/// `devicectl device info details` で切断中のデバイスを起こしたあと、つながらなかった理由を取り出す。
-/// 失敗しても、終了コードが 0 のことがある(例: 端末がロック中)ため、標準出力・標準エラーの `Error: ` の行を探す。
-public func wakeFailureReason(stdout: String, stderr: String, status: Int32) -> String? {
-    for line in (stdout + "\n" + stderr).split(separator: "\n") {
-        if let range = line.range(of: "Error: ") { return String(line[range.upperBound...]) }
-    }
-    return status == 0 ? nil : "exit status \(status)"
 }

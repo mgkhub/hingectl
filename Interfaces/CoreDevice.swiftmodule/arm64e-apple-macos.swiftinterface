@@ -5,6 +5,7 @@
 // CoreDevice.framework は Swift モジュール情報を持たないため、hingectl が使う型・メソッドだけを手で宣言している。
 // シグネチャとプロトコルの要件の並び(ウィットネステーブルのレイアウト)は、バイナリのシンボルと記述子から復元した。
 // 実際の定義と合っていないとクラッシュする。Xcode / OS の更新で変わりうるため、更新後は動作を再確認すること。
+import CoreDeviceProtocols
 import CoreDeviceUtilities
 import Foundation
 import Swift
@@ -32,6 +33,14 @@ public protocol MonitorMotionProtocol : CoreDevice.DeviceCapabilityProtocol {
 }
 public struct MonitorMotionCapability : CoreDevice.DeviceCapability {
   public typealias ProtocolType = any CoreDevice.MonitorMotionProtocol
+  public typealias ImplType = Swift.AnyObject
+  public static var capability: CoreDevice.Capability { get }
+}
+public protocol CaptureScreenshotProtocol : CoreDevice.DeviceCapabilityProtocol {
+  func takeScreenshot(displayUniqueID: Swift.String?, format: CoreDeviceUtilities.ScreenshotImageFormat) async throws -> CoreDeviceUtilities.CaptureScreenshotOutput
+}
+public struct CaptureScreenshotCapability : CoreDevice.DeviceCapability {
+  public typealias ProtocolType = any CoreDevice.CaptureScreenshotProtocol
   public typealias ImplType = Swift.AnyObject
   public static var capability: CoreDevice.Capability { get }
 }
@@ -87,10 +96,16 @@ extension CoreDevice.CapabilityStaticMember where A : CoreDevice.DeviceCapabilit
   public static var orientationControl: CoreDevice.CapabilityStaticMember<CoreDevice.OrientationControlCapability> { get }
   public static var hid: CoreDevice.CapabilityStaticMember<CoreDevice.HIDDeviceCapability>.Type { get }
   public static var monitorMotion: CoreDevice.CapabilityStaticMember<CoreDevice.MonitorMotionCapability> { get }
+  public static var captureScreenshot: CoreDevice.CapabilityStaticMember<CoreDevice.CaptureScreenshotCapability> { get }
 }
 public class RemoteDevice {
   final public var id: Foundation.UUID { get }
   final public var description: Swift.String { get }
+  public var deviceInfo: CoreDeviceProtocols.DeviceInfo { get }
+  public func connect() async throws
+  public func disconnect() async throws
+  public func supportsFeature(identifiedBy: Swift.String) -> Swift.Bool
+  public func supports<A>(_: CoreDevice.CapabilityStaticMember<A>) -> Swift.Bool where A : CoreDevice.DeviceCapability
   public func getImplementation<A>(for: CoreDevice.CapabilityStaticMember<A>) async throws -> A.ProtocolType where A : CoreDevice.DeviceCapability
 }
 public protocol CoreDeviceServiceConnection {
@@ -113,4 +128,10 @@ public final class DeviceManager {
 }
 extension CoreDevice.CapabilityStaticMember where A == CoreDevice.HIDDeviceCapability {
   public static var vendorDefined: CoreDevice.CapabilityStaticMember<CoreDevice.VendorDefinedHIDCapability> { get }
+}
+public struct DisplayInfo : Swift.Encodable {
+  public func encode(to encoder: Swift.Encoder) throws
+}
+extension CoreDevice.RemoteDevice {
+  public var displayInfo: CoreDevice.DisplayInfo { get async throws }
 }

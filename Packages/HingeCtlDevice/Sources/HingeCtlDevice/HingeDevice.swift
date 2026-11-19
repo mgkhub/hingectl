@@ -3,7 +3,7 @@ import Foundation
 import HingeCtlCore
 
 // CLI と GUI が使う、公開 API。CoreDevice の型は外へ出さず、Swift の型だけを受け渡す。
-// 個々の処理は DeviceAccess.swift / Devicectl.swift にある。
+// 個々の処理は DeviceAccess.swift にある。
 
 /// 連続送信用の送り手。`send` は流し切らずに送るので、最後に `flush()` を 1 回呼ぶ。
 public struct HingeSending {
@@ -84,8 +84,14 @@ public struct HingeDevice: @unchecked Sendable {
         try await HingeCtlDevice.setOrientation(remote, name: name, timeout: timeout)
     }
 
+    @discardableResult
     public func rotate(_ direction: RotationDirection, timeout: Double) async throws -> OrientationName {
         try await rotateOrientation(remote, direction: direction, timeout: timeout)
+    }
+
+    /// ディスプレイ情報(プロセス内の CoreDevice から取得)。
+    func readDisplays() async throws -> (displays: [DisplayState], active: Int?) {
+        try await readDisplaysInProcess(remote)
     }
 
     /// ヒンジ非対応のデバイス(`unsupported`)では、読めない項目があっても全体を失敗させず、読めたものを返す
@@ -111,7 +117,7 @@ public struct HingeDevice: @unchecked Sendable {
         var displays: [DisplayState] = []
         var active: Int?
         do {
-            (displays, active) = try readDisplays(deviceID: entry.id)
+            (displays, active) = try await readDisplays()
         } catch {
             guard tolerant else { throw error }
             HingeLog.warn("cannot read the displays: \(error)")
@@ -122,12 +128,12 @@ public struct HingeDevice: @unchecked Sendable {
     /// UI を載せているディスプレイの PNG を保存する。
     /// 折りたたんだ直後は、ディスプレイが active でもバックライトが遅れて点くため、少し待つ。
     public func screenshot(to path: String) async throws -> ScreenshotOutput {
-        var state = try readDisplays(deviceID: entry.id)
+        var state = try await readDisplays()
         var attempt = 0
         // 消灯(`off`)の間だけ待つ。報告の無い(`unknown`)デバイスでは、待っても変わらないので待たない。
         while let index = state.active, state.displays[index].backlight == .off, attempt < 8 {
             try await Task.sleep(for: .milliseconds(250))
-            state = try readDisplays(deviceID: entry.id)
+            state = try await readDisplays()
             attempt += 1
         }
         guard let index = state.active else { throw CLIError("No display is hosting the UI (is the device still booting?)") }
@@ -137,16 +143,21 @@ public struct HingeDevice: @unchecked Sendable {
         }
 
         let destinationURL = URL(fileURLWithPath: path).standardizedFileURL
-        try? FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let destination = destinationURL.path
-        var arguments = ["device", "capture", "screenshot", "--device", entry.id, "--destination", destination]
-        // ディスプレイが 1 つなら指定は不要で、指定を拒否する OS もある
-        if state.displays.count > 1 && !display.uniqueId.isEmpty { arguments += ["--display-unique-id", display.uniqueId] }
-        let run = try runDevicectl(arguments)
-        guard run.status == 0 else {
-            let output = (String(decoding: run.stdout, as: UTF8.self) + run.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CLIError("Failed to take a screenshot of \(display.name): \(output)")
-        }
+        let displayID = (state.displays.count > 1 && !display.uniqueId.isEmpty) ? display.uniqueId : nil
+        try await takeScreenshotInProcess(remote, displayUniqueID: displayID, to: destination)
         return ScreenshotOutput(display: display.name, path: destination)
     }
+}
+
+// MARK: - デバイス一覧と接続(プロセス内 CoreDevice 実装)
+
+/// 実機と、起動中のシミュレータの一覧
+public func listDevices() throws -> [DeviceEntry] {
+    try listDevicesInProcess()
+}
+
+/// 切断中(トンネルがアイドル)のデバイスの接続を張り、つながったものを最新の状態で返す。
+public func wakeDevices(_ entries: [DeviceEntry]) async -> [DeviceEntry] {
+    await wakeDevicesInProcess(entries)
 }

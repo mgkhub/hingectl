@@ -84,7 +84,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
-        # 非公開 API と devicectl の起動のため、サンドボックスは使わない
+        # 非公開 API (CoreDevice) 直接呼び出しのため、サンドボックスは使わない
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: YES

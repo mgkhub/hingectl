@@ -4,7 +4,7 @@ import HingeCtlCore
 import HingeCtlDevice
 
 /// 実際のバックエンド。CoreDevice を呼ぶのは HingeCtlDevice で、ここは `HingeBackend` の型に合わせるだけ。
-/// 呼び出しはメインアクターの外で実行される(devicectl の待ちで、画面を止めないため)。
+/// 呼び出しはメインアクターの外で実行される(CoreDevice の通信待ちで、画面を止めないため)。
 struct LiveBackend: HingeBackend {
     func listDevices() async throws -> [DeviceEntry] { try HingeCtlDevice.listDevices() }
 

@@ -1,7 +1,10 @@
 @_implementationOnly import CoreDevice
+@_implementationOnly import CoreDeviceProtocols
 @_implementationOnly import CoreDeviceUtilities
 import Foundation
 import HingeCtlCore
+import ImageIO
+import UniformTypeIdentifiers
 
 // MARK: - デバイスの選択
 
@@ -328,6 +331,31 @@ func setHingeAngle(_ device: RemoteDevice, degrees: Double, timeout: Double) asy
 /// 実機で 0 / 0.5 / 1 秒を比べ、0.5 秒に決めた(閉じた側のアニメーションが見え、待ちが長すぎない)。
 let displaySettleDelay = 0.5
 
+/// 折りたたみ・展開のあと、UI を載せるディスプレイの切り替えを待つ。
+/// `before` は、移動前に UI を載せていたディスプレイの uniqueId。
+func waitForDisplaySettle(_ device: RemoteDevice, before: String?, settle: Double, maxSeconds: Double = 6) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now + .seconds(maxSeconds)
+    let initialLimit = clock.now + .seconds(1)
+    var switchedAt: ContinuousClock.Instant?
+    let settleDuration = Duration.seconds(settle)
+    while clock.now < deadline {
+        guard let state = try? await readDisplaysInProcess(device) else {
+            HingeLog.warn("cannot read the display state; continuing without waiting for the switch")
+            return
+        }
+        let display = state.active.map { state.displays[$0] }
+        let lit = display?.isLit ?? false
+        if display?.uniqueId != before && lit && switchedAt == nil { switchedAt = clock.now }
+        if let switchedAt {
+            if clock.now - switchedAt >= settleDuration { return }
+        } else if clock.now >= initialLimit {
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+    }
+}
+
 /// `from` から `to` まで `seconds` 秒かけて、60Hz で角度を送り続ける。
 /// 各イベントは、開始時刻から数えた絶対時刻に送る(送信や起床の遅れが累積しない)。
 /// イベントごとの `sendBarrier()` は往復待ちで 1 回約 17 ms かかり、毎回呼ぶと実効 26Hz 前後に落ち、
@@ -341,11 +369,11 @@ func sweepHingeAngle(_ device: RemoteDevice, deviceID: String, from: Double, to:
         let current = try await readHingeAngle(device)
         let matches = abs(current.mechanicalAngle - from) <= hingeAngleTolerance || abs(current.sensorAngle - from) <= hingeAngleTolerance
         if !matches {
-            let before = try? readDisplays(deviceID: deviceID)
+            let before = try? await readDisplaysInProcess(device)
             let beforeActive = before?.active.map { before!.displays[$0].uniqueId }
             try await setHingeAngle(device, degrees: from, timeout: timeout)
             if (before?.displays.count ?? 0) > 1 {
-                await waitForDisplaySettle(deviceID: deviceID, before: beforeActive, settle: displaySettleDelay)
+                await waitForDisplaySettle(device, before: beforeActive, settle: displaySettleDelay)
             }
         }
     }
@@ -431,4 +459,209 @@ func rotateOrientation(_ device: RemoteDevice, direction: RotationDirection, tim
     let target = current.rotated(direction)
     try await setOrientation(device, name: target, timeout: timeout)
     return target
+}
+
+// MARK: - ディスプレイ情報(プロセス内)
+
+/// プロセス内の CoreDevice(`RemoteDevice.displayInfo`)から、ディスプレイ情報を読む。
+func readDisplaysInProcess(_ device: RemoteDevice) async throws -> (displays: [DisplayState], active: Int?) {
+    let info = try await device.displayInfo
+    let encoded = try JSONEncoder().encode(info)
+    return try decodeDisplays(data: encoded)
+}
+
+// MARK: - スクリーンショット(プロセス内)
+
+private func captureScreenshotControl(_ device: RemoteDevice) async throws -> any CaptureScreenshotProtocol {
+    do {
+        return try await device.getImplementation(for: .captureScreenshot)
+    } catch {
+        throw CLIError("This device does not support screenshot capture: \(error)")
+    }
+}
+
+/// プロセス内の CoreDevice(`CaptureScreenshotCapability`)からスクリーンショットを取得し、PNG ファイルとして保存する。
+func takeScreenshotInProcess(_ device: RemoteDevice, displayUniqueID: String?, to destinationPath: String) async throws {
+    let control = try await captureScreenshotControl(device)
+    let output: CaptureScreenshotOutput
+    do {
+        output = try await control.takeScreenshot(displayUniqueID: displayUniqueID, format: .png)
+    } catch {
+        throw CLIError("Failed to take screenshot: \(error)")
+    }
+
+    let destinationURL = URL(fileURLWithPath: destinationPath).standardizedFileURL
+    do {
+        try FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    } catch {
+        throw CLIError("Cannot create destination directory for \(destinationURL.path): \(error.localizedDescription)")
+    }
+
+    guard let destination = CGImageDestinationCreateWithURL(destinationURL as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+        throw CLIError("Cannot create image destination for \(destinationURL.path)")
+    }
+    CGImageDestinationAddImage(destination, output.image, nil)
+    guard CGImageDestinationFinalize(destination) else {
+        throw CLIError("Cannot write screenshot to \(destinationURL.path)")
+    }
+}
+
+// MARK: - デバイス一覧(プロセス内)
+
+private let simulatorWarmupLock = NSLock()
+private var simulatorWarmedUp = false
+
+private func warmedUpSimulatorDevices() -> [RemoteDevice] {
+    let manager = sharedSimulatorManager()
+    simulatorWarmupLock.lock()
+    defer { simulatorWarmupLock.unlock() }
+    if simulatorWarmedUp {
+        return manager.allDevices()
+    }
+
+    // 初回のみ最大 100ms (20ms 間隔) でシミュレータの非同期登録を待つ。
+    // シミュレータが 1 台でも現れれば即座に抜け、0 台環境でも無駄に待たせない。
+    var devices = manager.allDevices()
+    let clock = ContinuousClock()
+    let deadline = clock.now + .milliseconds(100)
+    while devices.isEmpty && clock.now < deadline {
+        Thread.sleep(forTimeInterval: 0.02)
+        devices = manager.allDevices()
+    }
+
+    simulatorWarmedUp = true
+    return devices
+}
+
+func listDevicesInProcess() throws -> [DeviceEntry] {
+    let physical = DeviceManager.shared.allDevices()
+    let simulators = warmedUpSimulatorDevices()
+
+    // 重複を排除しつつ実機を先、シミュレータを後に並べる
+    var seen = Set<UUID>()
+    var physicalRemotes: [RemoteDevice] = []
+    var simRemotes: [RemoteDevice] = []
+    for d in physical {
+        if seen.insert(d.id).inserted { physicalRemotes.append(d) }
+    }
+    for d in simulators {
+        if seen.insert(d.id).inserted { simRemotes.append(d) }
+    }
+
+    func parseEntry(from remote: RemoteDevice) -> DeviceEntry? {
+        guard let encoded = try? JSONEncoder().encode(remote.deviceInfo) else { return nil }
+        var capabilities: Set<String> = []
+        if remote.supportsFeature(identifiedBy: DeviceEntry.orientationControlFeature) || remote.supports(.orientationControl) {
+            capabilities.insert(DeviceEntry.orientationControlFeature)
+        }
+        return decodeCoreDeviceRecord(data: encoded, capabilities: capabilities)
+    }
+
+    var entries: [DeviceEntry] = []
+    for remote in physicalRemotes {
+        if let entry = parseEntry(from: remote) {
+            entries.append(entry)
+        }
+    }
+    for remote in simRemotes {
+        if let entry = parseEntry(from: remote) {
+            entries.append(entry)
+        }
+    }
+    return entries
+}
+
+// MARK: - 切断デバイスの接続確立(プロセス内)
+
+private final class ConnectAttemptState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isFinished = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if isFinished { return false }
+        isFinished = true
+        return true
+    }
+}
+
+/// 接続試行をタイムアウト付きで実行する。
+/// `remote.connect()` が Swift Concurrency の協調的キャンセルに応答しない場合でも、
+/// `withCheckedThrowingContinuation` を用いることでタイムアウト時に呼び出し元へ確実に即時復帰する。
+private func connectWithTimeout(_ remote: RemoteDevice, timeout: Duration = .seconds(10)) async throws {
+    let state = ConnectAttemptState()
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        let connectTask = Task {
+            do {
+                try await remote.connect()
+                if state.claim() {
+                    continuation.resume()
+                }
+            } catch {
+                if state.claim() {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+        Task {
+            try? await Task.sleep(for: timeout)
+            if state.claim() {
+                connectTask.cancel()
+                try? await remote.disconnect()
+                continuation.resume(throwing: CLIError("connection timed out"))
+            }
+        }
+    }
+}
+
+/// 切断中(トンネルがアイドル)のデバイスの接続をプロセス内で張り、つながったものを最新の状態で返す。
+func wakeDevicesInProcess(_ entries: [DeviceEntry]) async -> [DeviceEntry] {
+    guard !entries.isEmpty else { return [] }
+    HingeLog.note("connecting to \(entries.map(\.name).joined(separator: ", "))...")
+
+    var allRemotes = DeviceManager.shared.allDevices()
+    allRemotes.append(contentsOf: sharedSimulatorManager().allDevices())
+    let remotesByID = Dictionary(allRemotes.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { first, _ in first })
+
+    let failures = await withTaskGroup(of: (id: String, reason: String).self) { group in
+        for entry in entries {
+            guard let remote = remotesByID[entry.id] else {
+                group.addTask { (entry.id, "device not found in CoreDevice") }
+                continue
+            }
+            group.addTask {
+                do {
+                    try await connectWithTimeout(remote, timeout: .seconds(10))
+                    return (entry.id, "")
+                } catch {
+                    // タイムアウトまたは失敗時、放置された接続セッションを確実にクリーンアップ
+                    try? await remote.disconnect()
+                    return (entry.id, "\(error)")
+                }
+            }
+        }
+        var reasons: [String: String] = [:]
+        for await result in group { reasons[result.id] = result.reason }
+        return reasons
+    }
+
+    let refreshed: [DeviceEntry]
+    do {
+        refreshed = try listDevicesInProcess()
+    } catch {
+        HingeLog.warn("cannot read the device list after connecting: \(error)")
+        return []
+    }
+
+    var connected: [DeviceEntry] = []
+    for entry in entries {
+        if let now = refreshed.first(where: { $0.id == entry.id }), now.isConnected {
+            connected.append(now)
+        } else {
+            let reason = failures[entry.id].flatMap { $0.isEmpty ? nil : ": \($0)" } ?? ""
+            HingeLog.warn("could not connect to \(entry.name)\(reason)")
+        }
+    }
+    return connected
 }

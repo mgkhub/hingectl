@@ -29,9 +29,129 @@ private func selectionError(_ entries: [DeviceEntry], query: String?,
     }
 }
 
-@Suite("devicectl の JSON と実機の選択")
+@Suite("CoreDevice の JSON と実機の選択")
 struct DevicesTests {
-    // MARK: - 一覧の解析
+    // MARK: - CoreDeviceInfoRecord の解析
+
+    private func makeCoreDevicePlistJSON(
+        identifier: String = "11111111-2222-3333-4444-555555555555",
+        name: String? = "iPhone Duo",
+        udid: String? = "00000000-DUO0000000000001",
+        serialNumber: String? = nil,
+        reality: String = "physical",
+        state: String = "connected",
+        transportType: String? = "wired",
+        bootState: String? = nil,
+        platform: String? = "iOS",
+        deviceType: String? = "iPhone",
+        osVersion: String? = "27.1",
+        osBuild: String? = "24A94425"
+    ) -> Data {
+        var values: [[String: Any]] = []
+
+        func add(_ key: String, _ val: Any) {
+            values.append([
+                "descriptorIdentifier": ["key": key],
+                "value": val
+            ])
+        }
+
+        if let name { add("name", name) }
+        if let udid { add("udid", udid) }
+        if let serialNumber { add("serialNumber", serialNumber) }
+        add("reality", reality)
+        add("state", state)
+        if let transportType { add("transportType", transportType) }
+        if let bootState { add("bootState", bootState) }
+        if let platform { add("platform", platform) }
+        if let deviceType { add("deviceType", deviceType) }
+        if let osVersion {
+            add("osVersionNumber", ["stringValue": osVersion])
+        }
+        if let osBuild {
+            add("osBuildVersions", ["buildVersion": ["name": osBuild]])
+        }
+
+        let dict: [String: Any] = [
+            "identifier": identifier,
+            "values": values
+        ]
+        return try! JSONSerialization.data(withJSONObject: dict)
+    }
+
+    @Test func CoreDeviceのプロパティリストから実機のエントリを復元する() throws {
+        let json = makeCoreDevicePlistJSON()
+        let entry = try #require(decodeCoreDeviceRecord(data: json))
+
+        #expect(entry.id == "11111111-2222-3333-4444-555555555555")
+        #expect(entry.name == "iPhone Duo")
+        #expect(entry.udid == "00000000-DUO0000000000001")
+        #expect(entry.connectionState == .connected)
+        #expect(entry.reality == .physical)
+        #expect(entry.transport == "wired")
+        #expect(entry.osName == "iOS")
+        #expect(entry.osVersion == "27.1")
+        #expect(entry.osBuild == "24A94425")
+        #expect(entry.osText == "iOS 27.1")
+        #expect(!entry.mayHaveHinge)
+    }
+
+    @Test func capabilitiesを渡すとDeviceEntryに反映されmayHaveHingeが有効になる() throws {
+        let json = makeCoreDevicePlistJSON(state: "disconnected")
+        let entry = try #require(decodeCoreDeviceRecord(data: json, capabilities: [DeviceEntry.orientationControlFeature]))
+
+        #expect(entry.connectionState == .disconnected)
+        #expect(entry.isWakeable)
+        #expect(entry.mayHaveHinge)
+        #expect(entry.capabilities.contains(DeviceEntry.orientationControlFeature))
+    }
+
+    @Test func udidが欠落していてserialNumberがある場合はフォールバックする() throws {
+        let json = makeCoreDevicePlistJSON(udid: nil, serialNumber: "SERIAL12345")
+        let entry = try #require(decodeCoreDeviceRecord(data: json))
+        #expect(entry.udid == "SERIAL12345")
+    }
+
+    @Test func iPadの場合はosNameがiPadOSになる() throws {
+        let json = makeCoreDevicePlistJSON(name: "iPad mini", platform: "iOS", deviceType: "iPad")
+        let entry = try #require(decodeCoreDeviceRecord(data: json))
+        #expect(entry.osName == "iPadOS")
+        #expect(entry.osText == "iPadOS 27.1")
+    }
+
+    @Test func シミュレータは起動中かつ接続中のみエントリになりそれ以外はnil() throws {
+        // 起動中 & 接続中
+        let bootedJSON = makeCoreDevicePlistJSON(reality: "simulated", state: "connected", bootState: "booted")
+        let bootedEntry = decodeCoreDeviceRecord(data: bootedJSON)
+        #expect(bootedEntry != nil)
+        #expect(bootedEntry?.isSimulator == true)
+
+        // 停止中
+        let shutdownJSON = makeCoreDevicePlistJSON(reality: "simulated", state: "connected", bootState: "shutdown")
+        #expect(decodeCoreDeviceRecord(data: shutdownJSON) == nil)
+
+        // 切断中
+        let disconnectedJSON = makeCoreDevicePlistJSON(reality: "simulated", state: "disconnected", bootState: "booted")
+        #expect(decodeCoreDeviceRecord(data: disconnectedJSON) == nil)
+    }
+
+    @Test func 不正なJSONや必須フィールド欠損時は安全にnilを返す() {
+        #expect(decodeCoreDeviceRecord(data: Data()) == nil)
+        #expect(decodeCoreDeviceRecord(data: Data("{}".utf8)) == nil)
+
+        // identifier 欠落
+        let noID = try! JSONSerialization.data(withJSONObject: ["values": []])
+        #expect(decodeCoreDeviceRecord(data: noID) == nil)
+
+        // reality 欠落
+        let noReality = try! JSONSerialization.data(withJSONObject: [
+            "identifier": "ABC",
+            "values": [["descriptorIdentifier": ["key": "name"], "value": "Test"]]
+        ])
+        #expect(decodeCoreDeviceRecord(data: noReality) == nil)
+    }
+
+    // MARK: - 一覧の解析(旧形式互換)
 
     private func listResponse(_ devices: String) -> Data {
         Data(#"{"info":{"outcome":"success"},"result":{"devices":[\#(devices)]}}"#.utf8)

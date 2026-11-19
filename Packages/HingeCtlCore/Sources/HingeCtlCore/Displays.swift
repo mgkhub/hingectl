@@ -65,17 +65,15 @@ public struct DisplayState: Equatable {
     }
 }
 
-/// `devicectl device info displays -q -j -` の出力から、内蔵(integrated)ディスプレイを読み、
+/// CoreDevice の `RemoteDevice.displayInfo` の JSON から、内蔵(integrated)ディスプレイを読み、
 /// UI を載せているディスプレイの添字を返す。
-///
-/// 判定は `active` フラグで行う(バックライトではない)。ロック中でもディスプレイは active のままバックライトだけが落ち、
-/// 折りたたむとバックライトは active になってから最大 3 秒遅れて追従する。
-/// `active` を返さないデバイスでは、バックライトの点灯で代用する。
-public func decodeDisplays(stdout: Data, stderr: String, label: String) throws -> (displays: [DisplayState], active: Int?) {
-    var displays = try decodeDevicectl(DisplayList.self, stdout: stdout, stderr: stderr, label: label).displays.compactMap(\.state)
+public func decodeDisplays(data: Data) throws -> (displays: [DisplayState], active: Int?) {
+    guard let list = try? JSONDecoder().decode(DisplayList.self, from: data) else {
+        throw CLIError("The device display information cannot be read")
+    }
+    var displays = list.displays.compactMap(\.state)
     guard !displays.isEmpty else { throw CLIError("The device reports no integrated display") }
     var activeIndex = displays.firstIndex { $0.active }
-    // 古い OS は active もバックライトも返さないことがある。ディスプレイが 1 つなら、それが UI を載せている
     if activeIndex == nil && displays.count == 1 {
         displays[0].active = true
         activeIndex = 0
