@@ -370,7 +370,7 @@ func setHingeAngle(_ device: RemoteDevice, degrees: Double, timeout: Double) asy
     // sensorAngle はパネル表面角であり、端点付近で先行して 0°/180° にスナップするため到達判定には使わない。
     // スナップ領域では CoreDevice デーモンからのストリーム通知が途絶えることがあるため、
     // ストリーム監視と定期静定確認(readHingeAngle)を並行して行い、どちらか早い方で確実に到達を検知する。
-    return try await withThrowingTaskGroup(of: Double.self) { group in
+    return try await withThrowingTaskGroup(of: Double?.self) { group in
         // タスク 1: ストリームからの変化イベント監視
         group.addTask {
             let result: FirstElement<[HingeReading]>
@@ -389,8 +389,11 @@ func setHingeAngle(_ device: RemoteDevice, degrees: Double, timeout: Double) asy
                     try await sleepRemainingHidFlush(since: sentAt)
                 }
                 return reached
-            case .timedOut, .ended:
+            case .timedOut:
                 throw makeTimeoutError(item: "hinge angle", target: "reach \(angleText(degrees))°", timeout: timeout)
+            case .ended:
+                // ストリームが先に終了しても、定期静定確認(タスク 2)の判定を待つ
+                return nil
             }
         }
 
@@ -406,13 +409,17 @@ func setHingeAngle(_ device: RemoteDevice, degrees: Double, timeout: Double) asy
                 }
                 try await clock.sleep(for: .milliseconds(150))
             }
-            throw makeTimeoutError(item: "hinge angle", target: "reach \(angleText(degrees))°", timeout: timeout)
+            return nil
         }
 
-        // どちらか早い方が成功したら即完了し、もう一方をキャンセルする
-        let angle = try await group.next()!
-        group.cancelAll()
-        return angle
+        // どちらか早い方が到達を検知したら即完了し、もう一方をキャンセルする
+        for try await angle in group {
+            if let angle {
+                group.cancelAll()
+                return angle
+            }
+        }
+        throw makeTimeoutError(item: "hinge angle", target: "reach \(angleText(degrees))°", timeout: timeout)
     }
 }
 
@@ -555,14 +562,10 @@ func currentOrientation(_ device: RemoteDevice) async throws -> OrientationName?
         return direct
     }
     // 2. 平置き(faceUp/faceDown)のときは、アクティブなディスプレイの rotation から逆算
-    if let displays = try? await readDisplaysInProcess(device),
-       let activeIndex = displays.active {
-        let activeDisplay = displays.displays[activeIndex]
-        let isInner = activeDisplay.name.contains("LCD-1")
-        if let inferred = OrientationName(rotation: activeDisplay.rotation, isInnerDisplay: isInner) {
-            setLastKnownOrientation(inferred, for: device.id)
-            return inferred
-        }
+    if let state = try? await readDisplaysInProcess(device),
+       let inferred = inferOrientation(displays: state.displays, active: state.active) {
+        setLastKnownOrientation(inferred, for: device.id)
+        return inferred
     }
     // 3. ディスプレイから逆算できない場合(ホーム画面固定・消灯等)は直前の非平置き向きを採用
     if let nonFlat = OrientationName(info.currentDeviceNonFlatOrientation) {

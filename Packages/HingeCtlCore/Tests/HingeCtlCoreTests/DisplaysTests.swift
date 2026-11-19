@@ -209,4 +209,37 @@ struct DisplaysTests {
         #expect(OrientationName(rotation: .unknown, isInnerDisplay: true) == nil)
         #expect(OrientationName(rotation: "invalid", isInnerDisplay: true) == nil)
     }
+
+    @Test func ディスプレイ一覧とactiveから名前非依存で論理向きを逆算できる() throws {
+        // 複数ディスプレイで非プライマリが active のときは内側ディスプレイとして逆算(ディスプレイ名に依存しない)
+        let (duoDisplays, duoActive) = try decode([
+            display("Cover", id: 1, uniqueId: "cover", primary: true, active: false, backlight: "off", rotation: "rot0"),
+            display("Inner", id: 2, uniqueId: "inner", primary: false, active: true, backlight: "activeOn", rotation: "rot90"),
+        ])
+        #expect(inferOrientation(displays: duoDisplays, active: duoActive) == .portrait)
+
+        // 複数ディスプレイでプライマリ(カバー)が active のときは標準ディスプレイとして逆算
+        let (coverDisplays, coverActive) = try decode([
+            display("Cover", id: 1, uniqueId: "cover", primary: true, active: true, backlight: "activeOn", rotation: "rot90"),
+            display("Inner", id: 2, uniqueId: "inner", primary: false, active: false, backlight: "off", rotation: "rot0"),
+        ])
+        #expect(inferOrientation(displays: coverDisplays, active: coverActive) == .landscapeRight)
+
+        // 単画面端末は primary フラグにかかわらず標準ディスプレイとして逆算
+        let (singleDisplays, singleActive) = try decode([
+            display("Main", id: 1, uniqueId: "main", primary: false, active: true, backlight: "activeOn", rotation: "rot0"),
+        ])
+        #expect(inferOrientation(displays: singleDisplays, active: singleActive) == .portrait)
+
+        // 複数ディスプレイで primary が全欠落しているときは誤逆算を避けて nil
+        let (noPrimaryDisplays, noPrimaryActive) = try decode([
+            display("A", id: 1, uniqueId: "a", primary: false, active: false, backlight: "off", rotation: "rot0"),
+            display("B", id: 2, uniqueId: "b", primary: false, active: true, backlight: "activeOn", rotation: "rot90"),
+        ])
+        #expect(inferOrientation(displays: noPrimaryDisplays, active: noPrimaryActive) == nil)
+
+        // active が nil や範囲外のときは nil
+        #expect(inferOrientation(displays: duoDisplays, active: nil) == nil)
+        #expect(inferOrientation(displays: duoDisplays, active: 99) == nil)
+    }
 }

@@ -134,3 +134,19 @@ public func postureLines(device: DeviceEntry, posture: PostureSnapshot) -> [Stri
     postureLines(udid: device.udid, name: device.name, mechanicalAngle: posture.mechanicalAngle,
                  sensorAngle: posture.sensorAngle, orientation: posture.orientation, displays: posture.displays)
 }
+
+/// アクティブなディスプレイの描画回転(`rotation`)から端末の論理向きを逆算する。
+/// 折りたたみ端末(複数内蔵ディスプレイ)では非プライマリ画面を内側ディスプレイとして扱う。
+/// 複数ディスプレイ構成で `primary` が 1 つも無い場合はカバー／内側の区別がつかないため nil を返す。
+public func inferOrientation(displays: [DisplayState], active: Int?) -> OrientationName? {
+    guard let active, displays.indices.contains(active) else { return nil }
+    let activeDisplay = displays[active]
+    let isInner: Bool
+    if displays.count > 1 {
+        guard displays.contains(where: \.primary) else { return nil }
+        isInner = !activeDisplay.primary
+    } else {
+        isInner = false
+    }
+    return OrientationName(rotation: activeDisplay.rotation, isInnerDisplay: isInner)
+}
