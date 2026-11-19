@@ -454,7 +454,7 @@ func waitForDisplaySettle(_ device: RemoteDevice, before: String?, settle: Doubl
 /// 待たずに掃引を始めると、`from` へ一気に飛んだ直後に掃引が始まり、`from` 側のディスプレイのアニメーションが
 /// 途中で切られる。`timeout` が 0 以下なら、待たずに始める(確認しない指定と同じ扱い)。
 @discardableResult
-func sweepHingeAngle(_ device: RemoteDevice, deviceID: String, from: Double, to: Double, seconds: Double, timeout: Double) async throws -> Double? {
+func sweepHingeAngle(_ device: RemoteDevice, from: Double, to: Double, seconds: Double, timeout: Double) async throws -> Double? {
     if timeout > 0 {
         let current = try await readHingeAngle(device)
         let matches = abs(current.mechanicalAngle - from) <= hingeAngleTolerance || abs(current.sensorAngle - from) <= hingeAngleTolerance
@@ -618,14 +618,13 @@ func setOrientation(_ device: RemoteDevice, name: OrientationName, timeout: Doub
 }
 
 /// 現在の向きから 90° 進める(順序は HingeCtlCore の `OrientationName.rotated`)。
-/// 戻り値は、実行後に読み戻した向きと、目標の向き。
-func rotateOrientation(_ device: RemoteDevice, direction: RotationDirection, timeout: Double) async throws -> (actual: OrientationName, target: OrientationName) {
+/// 戻り値は、実行後に読み戻した向き。
+func rotateOrientation(_ device: RemoteDevice, direction: RotationDirection, timeout: Double) async throws -> OrientationName {
     guard let current = try await currentOrientation(device) else {
         throw CLIError("Cannot interpret the current orientation: unknown")
     }
     let target = current.rotated(direction)
-    let actual = try await setOrientation(device, name: target, timeout: timeout) ?? current
-    return (actual, target)
+    return try await setOrientation(device, name: target, timeout: timeout) ?? current
 }
 
 // MARK: - ディスプレイ情報(プロセス内)

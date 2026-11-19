@@ -75,7 +75,7 @@ public struct HingeDevice: @unchecked Sendable {
     /// 戻り値は、掃引完了後に読み戻した角度(mechanicalAngle。読めなければ nil)。
     @discardableResult
     public func sweep(from: Double, to: Double, seconds: Double, timeout: Double) async throws -> Double? {
-        try await sweepHingeAngle(remote, deviceID: entry.id, from: from, to: to, seconds: seconds, timeout: timeout)
+        try await sweepHingeAngle(remote, from: from, to: to, seconds: seconds, timeout: timeout)
     }
 
     public func beginSending() async throws -> HingeSending {
@@ -95,8 +95,7 @@ public struct HingeDevice: @unchecked Sendable {
     /// `-t 0` で、反映が間に合わず、目標と違う向きが読み戻されたときは、警告する。
     @discardableResult
     public func rotate(_ direction: RotationDirection, timeout: Double) async throws -> OrientationName {
-        let (actual, _) = try await rotateOrientation(remote, direction: direction, timeout: timeout)
-        return actual
+        try await rotateOrientation(remote, direction: direction, timeout: timeout)
     }
 
     /// ディスプレイ情報(プロセス内の CoreDevice から取得)。
