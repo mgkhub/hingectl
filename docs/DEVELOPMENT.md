@@ -140,7 +140,7 @@ Swift モジュール情報を持ちません。そこで次の方法で直接�
 | ヒンジ角の設定 | CoreDevice: `.hid.vendorDefined` → `HIDVendorDefined.send(usagePage:usage:version:data:)` |
 | 向き | CoreDevice: `.orientationControl` → `OrientationControl` |
 | ディスプレイの状態 | CoreDevice: `RemoteDevice.displayInfo` |
-| スクリーンショット | CoreDevice: `.captureScreenshot` → `CaptureScreenshotProtocol.takeScreenshot(displayUniqueID:format:)` |
+| スクリーンショット | CoreDevice: `.captureScreenshot` → `CaptureScreenshotProtocol.captureScreenshot(displayUniqueID:format:)` |
 
 ## JSON の扱い
 

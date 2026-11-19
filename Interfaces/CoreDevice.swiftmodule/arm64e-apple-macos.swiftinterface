@@ -36,8 +36,9 @@ public struct MonitorMotionCapability : CoreDevice.DeviceCapability {
   public typealias ImplType = Swift.AnyObject
   public static var capability: CoreDevice.Capability { get }
 }
+// Xcode 27.2 以降では型なし throws の takeScreenshot も存在するが、Xcode 27.1 互換のため captureScreenshot を使う。
 public protocol CaptureScreenshotProtocol : CoreDevice.DeviceCapabilityProtocol {
-  func takeScreenshot(displayUniqueID: Swift.String?, format: CoreDeviceUtilities.ScreenshotImageFormat) async throws -> CoreDeviceUtilities.CaptureScreenshotOutput
+  func captureScreenshot(displayUniqueID: Swift.String?, format: CoreDeviceUtilities.ScreenshotImageFormat) async throws(CoreDevice.CoreDeviceError) -> CoreDeviceUtilities.CaptureScreenshotOutput
 }
 public struct CaptureScreenshotCapability : CoreDevice.DeviceCapability {
   public typealias ProtocolType = any CoreDevice.CaptureScreenshotProtocol

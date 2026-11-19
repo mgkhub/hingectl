@@ -652,7 +652,7 @@ func takeScreenshotInProcess(_ device: RemoteDevice, displayUniqueID: String?, t
     let control = try await captureScreenshotControl(device)
     let output: CaptureScreenshotOutput
     do {
-        output = try await control.takeScreenshot(displayUniqueID: displayUniqueID, format: .png)
+        output = try await control.captureScreenshot(displayUniqueID: displayUniqueID, format: .png)
     } catch {
         throw CLIError("Failed to take screenshot: \(error)")
     }
