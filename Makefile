@@ -20,9 +20,12 @@ SWIFTC_TARGET := -Xswiftc -target -Xswiftc $(TRIPLE)
 
 # GUI(HingeCtlApp)は Xcode プロジェクト。Xcode 27.0 以降が要る(CLI と同じ理由)。成果物は .build/xcode の下に作る。
 # プロジェクトは HingeCtlApp/project.yml から、XcodeGen(版は Mintfile で固定)で生成する。mint が要る(`brew install mint`)。
+# CI などプリビルド済みの xcodegen を使う場合は `XCODEGEN=xcodegen` で上書きできる。
+XCODEGEN ?= mint run xcodegen
 APP_PROJECT := HingeCtlApp/HingeCtlApp.xcodeproj
 APP_DERIVED := .build/xcode
 APP_BUNDLE := $(APP_DERIVED)/Build/Products/Release/HingeCtl.app
+TEST_SCRATCH := .build/test
 
 .PHONY: build test clean app run-app screenshots dmg generate-xcodeproj
 
@@ -32,9 +35,10 @@ build:
 
 # 純粋なロジックのテスト(arm64。CoreDevice には依存しない。Xcode は選択中のものを使う)。
 # HingeCtlCore(引数の解釈・計算・解析)と、HingeCtlAppKit(GUI の状態管理。偽のバックエンドで検証する)。
+# 両パッケージで scratch-path を共有し、swift-argument-parser と HingeCtlCore の重複ビルドを防ぐ。
 test:
-	swift test --package-path Packages/HingeCtlCore
-	swift test --package-path Packages/HingeCtlAppKit
+	swift test --package-path Packages/HingeCtlCore --scratch-path $(TEST_SCRATCH)
+	swift test --package-path Packages/HingeCtlAppKit --scratch-path $(TEST_SCRATCH)
 
 app: generate-xcodeproj
 	$(WITH_XCODE) xcodebuild -project $(APP_PROJECT) -scheme HingeCtlApp -configuration Release -derivedDataPath $(APP_DERIVED) -quiet build
@@ -88,8 +92,10 @@ screenshots: app
 # project.yml を変えたときと、チェックアウトの直後(生成物はコミットしていない)に要る。ソースファイルの追加・削除は不要。
 # `make app` は、毎回これを実行する。
 generate-xcodeproj:
-	@command -v mint >/dev/null || { echo "mint is required: brew install mint" >&2; exit 1; }
-	mint run xcodegen generate --spec HingeCtlApp/project.yml --quiet
+	@if [ "$(XCODEGEN)" = "mint run xcodegen" ]; then \
+		command -v mint >/dev/null || { echo "mint is required: brew install mint" >&2; exit 1; }; \
+	fi
+	$(XCODEGEN) generate --spec HingeCtlApp/project.yml --quiet
 
 clean:
 	rm -rf .build .tmp Packages/HingeCtlCore/.build Packages/HingeCtlDevice/.build Packages/HingeCtlAppKit/.build

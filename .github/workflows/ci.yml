@@ -41,17 +41,9 @@ jobs:
           echo "=== Initialize Xcode Developer Components ==="
           sudo xcodebuild -runFirstLaunch
 
-      - name: Cache Mint packages
-        uses: actions/cache@v6
-        with:
-          path: ~/.mint
-          key: ${{ runner.os }}-mint-${{ hashFiles('Mintfile') }}
-          restore-keys: |
-            ${{ runner.os }}-mint-
-
-      - name: Install Mint
+      - name: Install XcodeGen
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install mint
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install xcodegen
 
       - name: Run Tests (HingeCtlCore & HingeCtlAppKit)
         run: make test
@@ -64,11 +56,8 @@ jobs:
           ./.build/arm64e-apple-macosx/release/hingectl --version
           ./.build/arm64e-apple-macosx/release/hingectl --help
 
-      - name: Build GUI App (HingeCtl.app)
-        run: make app
-
-      - name: Build Distribution DMG
-        run: make dmg
+      - name: Build GUI App & Distribution DMG
+        run: make dmg XCODEGEN=xcodegen
 
       - name: Prepare Artifacts
         run: |
