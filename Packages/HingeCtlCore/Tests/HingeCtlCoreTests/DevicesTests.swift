@@ -133,6 +133,20 @@ struct DevicesTests {
         // 切断中
         let disconnectedJSON = makeCoreDevicePlistJSON(reality: "simulated", state: "disconnected", bootState: "booted")
         #expect(decodeCoreDeviceRecord(data: disconnectedJSON) == nil)
+
+        // bootState 欠落
+        let noBootStateJSON = makeCoreDevicePlistJSON(reality: "simulated", state: "connected", bootState: nil)
+        #expect(decodeCoreDeviceRecord(data: noBootStateJSON) == nil)
+
+        // state 欠落
+        let noStateJSON = try JSONSerialization.data(withJSONObject: [
+            "identifier": "S-NO-STATE",
+            "values": [
+                ["descriptorIdentifier": ["key": "reality"], "value": "simulated"],
+                ["descriptorIdentifier": ["key": "bootState"], "value": "booted"],
+            ]
+        ])
+        #expect(decodeCoreDeviceRecord(data: noStateJSON) == nil)
     }
 
     @Test func 不正なJSONや必須フィールド欠損時は安全にnilを返す() {
@@ -149,55 +163,40 @@ struct DevicesTests {
             "values": [["descriptorIdentifier": ["key": "name"], "value": "Test"]]
         ])
         #expect(decodeCoreDeviceRecord(data: noReality) == nil)
+
+        // 未知の reality
+        let otherReality = makeCoreDevicePlistJSON(identifier: "X1", name: "Other", udid: "UX", reality: "other", state: "connected")
+        #expect(decodeCoreDeviceRecord(data: otherReality) == nil)
     }
 
-    // MARK: - 一覧の解析(旧形式互換)
-
-    private func listResponse(_ devices: String) -> Data {
-        Data(#"{"info":{"outcome":"success"},"result":{"devices":[\#(devices)]}}"#.utf8)
-    }
-
-    private func decode(_ devices: String) throws -> [DeviceEntry] {
-        try decodeDevices(stdout: listResponse(devices), stderr: "", label: "list devices")
-    }
-
-    private func record(id: String?, name: String?, reality: String?, udid: String?, state: String?) -> String {
-        var fields: [String] = []
-        if let id { fields.append(#""identifier":"\#(id)""#) }
-        if let name { fields.append(#""deviceProperties":{"name":"\#(name)"}"#) }
-        var hardware: [String] = []
-        if let reality { hardware.append(#""reality":"\#(reality)""#) }
-        if let udid { hardware.append(#""udid":"\#(udid)""#) }
-        fields.append(#""hardwareProperties":{\#(hardware.joined(separator: ","))}"#)
-        if let state { fields.append(#""connectionProperties":{"tunnelState":"\#(state)"}"#) }
-        return "{" + fields.joined(separator: ",") + "}"
-    }
-
-    @Test func OSのバージョンとビルドと名前を読む() throws {
-        let json = #"""
-            {"identifier":"P1","deviceProperties":{"name":"iPhone Duo","osVersionNumber":"27.1","osBuildUpdate":"24A94425"},
-             "hardwareProperties":{"reality":"physical","udid":"U1","platform":"iOS","deviceType":"iPhone"},
-             "connectionProperties":{"tunnelState":"disconnected"}},
-            {"identifier":"P2","deviceProperties":{"name":"iPad mini","osVersionNumber":"27.2","osBuildUpdate":"24B119"},
-             "hardwareProperties":{"reality":"physical","udid":"U2","platform":"iOS","deviceType":"iPad"},
-             "connectionProperties":{"tunnelState":"disconnected"}}
-            """#
-        let entries = try decode(json)
-        #expect(entries.map(\.osText) == ["iOS 27.1", "iPadOS 27.2"])
-        #expect(entries.map(\.osBuild) == ["24A94425", "24B119"])
-    }
+    // MARK: - 一覧・デコードの寛容性と表示
 
     @Test func OSの情報が無い_または型が違えば_nilになり_ほかの項目は読める() throws {
-        let json = #"""
-            {"identifier":"P1","deviceProperties":{"name":"Watch"},"hardwareProperties":{"reality":"physical","udid":"U1","platform":"watchOS"}},
-            {"identifier":"P2","deviceProperties":{"name":"X","osVersionNumber":27,"osBuildUpdate":false},
-             "hardwareProperties":{"reality":"physical","udid":"U2","platform":7,"deviceType":[]}}
-            """#
-        let entries = try decode(json)
-        #expect(entries.map(\.osVersion) == [nil, nil])
-        #expect(entries.map(\.osText) == [nil, nil])
-        #expect(entries.map(\.name) == ["Watch", "X"])
-        #expect(entries[0].osName == "watchOS")
+        let noOS = makeCoreDevicePlistJSON(identifier: "P1", name: "Watch", udid: "U1", platform: "watchOS", deviceType: nil, osVersion: nil, osBuild: nil)
+        let watch = try #require(decodeCoreDeviceRecord(data: noOS))
+        #expect(watch.name == "Watch")
+        #expect(watch.osName == "watchOS")
+        #expect(watch.osVersion == nil)
+        #expect(watch.osText == nil)
+
+        let wrongTypes = try JSONSerialization.data(withJSONObject: [
+            "identifier": "P2",
+            "values": [
+                ["descriptorIdentifier": ["key": "name"], "value": "X"],
+                ["descriptorIdentifier": ["key": "reality"], "value": "physical"],
+                ["descriptorIdentifier": ["key": "udid"], "value": "U2"],
+                ["descriptorIdentifier": ["key": "osVersionNumber"], "value": 27],
+                ["descriptorIdentifier": ["key": "osBuildVersions"], "value": false],
+                ["descriptorIdentifier": ["key": "platform"], "value": 7],
+                ["descriptorIdentifier": ["key": "deviceType"], "value": []],
+            ]
+        ])
+        let x = try #require(decodeCoreDeviceRecord(data: wrongTypes))
+        #expect(x.name == "X")
+        #expect(x.osName == nil)
+        #expect(x.osVersion == nil)
+        #expect(x.osBuild == nil)
+        #expect(x.osText == nil)
     }
 
     @Test func バージョンがあって名前が無ければ_OSと表示する() {
@@ -213,71 +212,46 @@ struct DevicesTests {
         #expect(listLine(entry) == listLine(plain))
     }
 
-    @Test func 実機と起動中のシミュレータだけを返し_実機が先() throws {
-        let devices = try decode([
-            record(id: "S1", name: "Sim", reality: "simulated", udid: "S1", state: "connected"),         // 起動中のシミュレータ
-            record(id: "S2", name: "Off", reality: "simulated", udid: "S2", state: "disconnected"),      // 未起動のシミュレータは除外
-            record(id: "P1", name: "Real", reality: "physical", udid: "U1", state: "connected"),
-            record(id: "P0", name: "Away", reality: "physical", udid: "U0", state: "disconnected"),     // 実機は未接続でも返す
-            record(id: nil, name: "NoId", reality: "physical", udid: nil, state: nil),
-            record(id: "W1", name: "Watch", reality: nil, udid: "UW", state: "disconnected"),           // reality が無いものは除外
-            record(id: "X1", name: "Other", reality: "other", udid: "UX", state: "connected"),          // 未知の reality は除外
-        ].joined(separator: ","))
-        #expect(devices == [
-            DeviceEntry(id: "P1", name: "Real", udid: "U1", connectionState: "connected"),
-            DeviceEntry(id: "P0", name: "Away", udid: "U0", connectionState: "disconnected"),
-            DeviceEntry(id: "S1", name: "Sim", udid: "S1", connectionState: "connected", reality: .simulated),
-        ])
-    }
-
-    @Test func 接続状態が不明なシミュレータは除外する() throws {
-        #expect(try decode(record(id: "S3", name: "Sim", reality: "simulated", udid: "S3", state: nil)).isEmpty)
-    }
-
     @Test func 欠けた項目は既定値で補う() throws {
-        let devices = try decode(record(id: "P2", name: nil, reality: "physical", udid: nil, state: nil))
-        #expect(devices == [DeviceEntry(id: "P2", name: "(unnamed)", udid: "P2", connectionState: "unknown")])
-        #expect(try decodeDevices(stdout: Data(#"{"info":{"outcome":"success"},"result":{}}"#.utf8), stderr: "", label: "list devices").isEmpty)
+        let minimal = try JSONSerialization.data(withJSONObject: [
+            "identifier": "P2",
+            "values": [["descriptorIdentifier": ["key": "reality"], "value": "physical"]]
+        ])
+        #expect(decodeCoreDeviceRecord(data: minimal) == DeviceEntry(id: "P2", name: "(unnamed)", udid: "P2", connectionState: "unknown"))
     }
 
     @Test func 型の違う項目だけが既定値に落ち_未知のキーは無視される() throws {
-        let json = #"""
-            {"identifier":"P3","extra":{"a":[1,2]},"deviceProperties":{"name":7,"other":true},
-             "hardwareProperties":{"reality":"physical","udid":["x"]},"connectionProperties":{"tunnelState":false}}
-            """#
-        #expect(try decode(json) == [DeviceEntry(id: "P3", name: "(unnamed)", udid: "P3", connectionState: "unknown")])
-        // 入れ子の項目そのものが壊れていても、ほかの項目は読める
-        let nested = #"{"identifier":"P4","deviceProperties":"x","hardwareProperties":{"reality":"physical","udid":"U4"},"connectionProperties":[]}"#
-        #expect(try decode(nested) == [DeviceEntry(id: "P4", name: "(unnamed)", udid: "U4", connectionState: "unknown")])
+        let data = try JSONSerialization.data(withJSONObject: [
+            "identifier": "P3",
+            "extra": ["a": [1, 2]],
+            "values": [
+                ["descriptorIdentifier": ["key": "name"], "value": 7],
+                ["descriptorIdentifier": ["key": "other"], "value": true],
+                ["descriptorIdentifier": ["key": "reality"], "value": "physical"],
+                ["descriptorIdentifier": ["key": "udid"], "value": ["x"]],
+                ["descriptorIdentifier": ["key": "state"], "value": false],
+                ["descriptorIdentifier": "broken", "value": "ignored"],
+            ]
+        ])
+        #expect(decodeCoreDeviceRecord(data: data) == DeviceEntry(id: "P3", name: "(unnamed)", udid: "P3", connectionState: "unknown"))
+
+        // values 自体が配列でない場合も、クラッシュせず nil になる
+        let nonArrayValues = try JSONSerialization.data(withJSONObject: [
+            "identifier": "P4",
+            "values": "x"
+        ])
+        #expect(decodeCoreDeviceRecord(data: nonArrayValues) == nil)
     }
 
     @Test func 配列の壊れた要素だけが除外される() throws {
-        let devices = try decode(#"1,"x",null,[],"#
-            + record(id: "P5", name: "Ok", reality: "physical", udid: "U5", state: "connected"))
-        #expect(devices.map(\.id) == ["P5"])
-    }
-
-    @Test func devicesが配列でなければ空() throws {
-        let data = Data(#"{"info":{"outcome":"success"},"result":{"devices":"x"}}"#.utf8)
-        #expect(try decodeDevices(stdout: data, stderr: "", label: "list devices").isEmpty)
-    }
-
-    @Test func 失敗した出力はstderrを添えてエラー() {
-        let failure = #"{"info":{"outcome":"failed"}}"#
-        for (stdout, stderr, expected) in [
-            (failure, "boom\n", "devicectl list devices failed: boom"),
-            (failure, "", "devicectl list devices failed"),
-            ("not json", "", "devicectl list devices failed"),
-        ] {
-            do {
-                _ = try decodeDevices(stdout: Data(stdout.utf8), stderr: stderr, label: "list devices")
-                Issue.record("エラーになるはず: \(stdout)")
-            } catch let error as CLIError {
-                #expect(error.description == expected)
-            } catch {
-                Issue.record("予期しないエラー: \(error)")
-            }
-        }
+        let data = Data(#"""
+            {"identifier":"P5","values":[1,"x",null,[],
+              {"descriptorIdentifier":{"key":"name"},"value":"Ok"},
+              {"descriptorIdentifier":{"key":"reality"},"value":"physical"},
+              {"descriptorIdentifier":{"key":"udid"},"value":"U5"},
+              {"descriptorIdentifier":{"key":"state"},"value":"connected"}]}
+            """#.utf8)
+        #expect(decodeCoreDeviceRecord(data: data) == DeviceEntry(id: "P5", name: "Ok", udid: "U5", connectionState: "connected"))
     }
 
     @Test func 一覧の行は実機では従来と同じで_シミュレータには印が付く() {

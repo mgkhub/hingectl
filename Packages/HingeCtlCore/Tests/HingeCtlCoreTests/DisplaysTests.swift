@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HingeCtlCore
 
-// フィクスチャは `devicectl device info displays -q -j -` の応答に近い JSON 文字列(ID は架空)。
+// フィクスチャは CoreDevice の displayInfo の JSON 文字列(ID は架空)。
 
 private func display(_ name: String, id: Int, uniqueId: String, primary: Bool = false,
                      active: Bool? = nil, backlight: String? = nil,
@@ -17,11 +17,11 @@ private func display(_ name: String, id: Int, uniqueId: String, primary: Bool = 
 }
 
 private func response(_ displays: [String]) -> Data {
-    Data(#"{"info":{"outcome":"success"},"result":{"displays":[\#(displays.joined(separator: ","))]}}"#.utf8)
+    Data(#"{"displays":[\#(displays.joined(separator: ","))]}"#.utf8)
 }
 
 private func decode(_ displays: [String]) throws -> (displays: [DisplayState], active: Int?) {
-    try decodeDisplays(stdout: response(displays), stderr: "", label: "device info displays")
+    try decodeDisplays(data: response(displays))
 }
 
 /// 折りたたみ(Duo)の例: 背面は消灯、内側が active。ほかに wireless ディスプレイ(内蔵ではない)が並ぶ。
@@ -116,10 +116,10 @@ struct DisplaysTests {
 
     @Test func 配列の壊れた要素だけが除外される() throws {
         let data = Data(#"""
-            {"info":{"outcome":"success"},"result":{"displays":[1,"x",null,[],
-              {"name":"OK","type":{"integrated":{}},"active":true,"backlightState":"activeOn"}]}}
+            {"displays":[1,"x",null,[],
+              {"name":"OK","type":{"integrated":{}},"active":true,"backlightState":"activeOn"}]}
             """#.utf8)
-        let (displays, _) = try decodeDisplays(stdout: data, stderr: "", label: "device info displays")
+        let (displays, _) = try decodeDisplays(data: data)
         #expect(displays.map(\.name) == ["OK"])
     }
 
@@ -138,23 +138,22 @@ struct DisplaysTests {
         #expect(displays[0].width == 1398 && displays[0].height == 2034 && displays[0].displayId == 2 && displays[0].scale == 3)
     }
 
-    // MARK: - 応答の封筒
+    // MARK: - 異常系のエラー
 
-    @Test func outcomeが成功でない_JSONでない_resultが無いときはエラー() {
-        let cases: [(String, String, String)] = [
-            (#"{"info":{"outcome":"failed"}}"#, "boom\n", "devicectl device info displays failed: boom"),
-            (#"{"info":{"outcome":"failed"},"result":{}}"#, "", "devicectl device info displays failed"),
-            ("not json", "", "devicectl device info displays failed"),
-            (#"{"info":{"outcome":"success"}}"#, "", "devicectl device info displays failed"),
-            (#"{"info":{"outcome":"success"},"result":[]}"#, "", "devicectl device info displays failed"),
-            (#"{"result":{"displays":[]}}"#, "", "devicectl device info displays failed"),
+    @Test func JSONでない_またはdisplaysが読めないときはエラー() {
+        let cases: [(String, String)] = [
+            ("not json", "The device display information cannot be read"),
+            ("[]", "The device display information cannot be read"),
+            ("{}", "The device reports no integrated display"),
+            (#"{"displays":"x"}"#, "The device reports no integrated display"),
+            (#"{"displays":[]}"#, "The device reports no integrated display"),
         ]
-        for (stdout, stderr, expected) in cases {
+        for (json, expected) in cases {
             do {
-                _ = try decodeDisplays(stdout: Data(stdout.utf8), stderr: stderr, label: "device info displays")
-                Issue.record("エラーになるはず: \(stdout)")
+                _ = try decodeDisplays(data: Data(json.utf8))
+                Issue.record("エラーになるはず: \(json)")
             } catch let error as CLIError {
-                #expect(error.description == expected, "\(stdout)")
+                #expect(error.description == expected, "\(json)")
             } catch {
                 Issue.record("予期しないエラー: \(error)")
             }

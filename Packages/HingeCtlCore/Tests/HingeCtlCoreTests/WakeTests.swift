@@ -66,17 +66,24 @@ struct WakeTests {
         #expect(!device(8, name: "Odd", state: "unavailable", transport: "wired").isWakeable)          // 切断中ではない
     }
 
-    @Test func 一覧から経路を読む_経路が無いキーはnil() throws {
-        let json = Data(#"""
-            {"info":{"outcome":"success"},"result":{"devices":[
-              {"identifier":"P1","deviceProperties":{"name":"Idle"},"hardwareProperties":{"reality":"physical","udid":"U1"},
-               "connectionProperties":{"tunnelState":"disconnected","transportType":"wired"}},
-              {"identifier":"P2","deviceProperties":{"name":"Gone"},"hardwareProperties":{"reality":"physical","udid":"U2"},
-               "connectionProperties":{"tunnelState":"unavailable"}},
-              {"identifier":"P3","deviceProperties":{"name":"Odd"},"hardwareProperties":{"reality":"physical","udid":"U3"},
-               "connectionProperties":{"tunnelState":"disconnected","transportType":7}}]}}
-            """#.utf8)
-        let entries = try decodeDevices(stdout: json, stderr: "", label: "list devices")
+    @Test func CoreDeviceレコードから経路を読む_経路が無いキーや型違いはnil() throws {
+        func record(id: String, name: String, udid: String, state: String, transport: Any?) -> Data {
+            var values: [[String: Any]] = [
+                ["descriptorIdentifier": ["key": "name"], "value": name],
+                ["descriptorIdentifier": ["key": "reality"], "value": "physical"],
+                ["descriptorIdentifier": ["key": "udid"], "value": udid],
+                ["descriptorIdentifier": ["key": "state"], "value": state],
+            ]
+            if let transport {
+                values.append(["descriptorIdentifier": ["key": "transportType"], "value": transport])
+            }
+            return try! JSONSerialization.data(withJSONObject: ["identifier": id, "values": values])
+        }
+        let entries = [
+            try #require(decodeCoreDeviceRecord(data: record(id: "P1", name: "Idle", udid: "U1", state: "disconnected", transport: "wired"))),
+            try #require(decodeCoreDeviceRecord(data: record(id: "P2", name: "Gone", udid: "U2", state: "unavailable", transport: nil))),
+            try #require(decodeCoreDeviceRecord(data: record(id: "P3", name: "Odd", udid: "U3", state: "disconnected", transport: 7))),
+        ]
         #expect(entries.map(\.transport) == ["wired", nil, nil])          // 型が違う値は、nil として読み飛ばす
         #expect(entries.map(\.isWakeable) == [true, false, false])
     }
@@ -193,22 +200,6 @@ struct WakeOrderTests {
         #expect(!other.mayHaveHinge)
     }
 
-    @Test func 機能の一覧を読む_無いキーと型違いは空() throws {
-        let json = Data(#"""
-            {"info":{"outcome":"success"},"result":{"devices":[
-              {"identifier":"P1","hardwareProperties":{"reality":"physical"},
-               "capabilities":[{"featureIdentifier":"com.apple.coredevice.feature.remote.devicecontrol.orientation"},
-                               {"featureIdentifier":"a.b"},{"featureIdentifier":7},{"other":1}]},
-              {"identifier":"P2","hardwareProperties":{"reality":"physical"}},
-              {"identifier":"P3","hardwareProperties":{"reality":"physical"},"capabilities":"x"}]}}
-            """#.utf8)
-        let entries = try decodeDevices(stdout: json, stderr: "", label: "list devices")
-        #expect(entries[0].capabilities == [DeviceEntry.orientationControlFeature, "a.b"])
-        #expect(entries[0].mayHaveHinge)
-        #expect(entries[1].capabilities.isEmpty)
-        #expect(entries[2].capabilities.isEmpty)
-    }
-
     @Test func 機能の一覧は_出力に出ない() {
         #expect(encodeJSON([hintedDuo]) == #"[{"id":"DDDDDDDD-0000-0000-0000-000000000001","name":"Hinted Duo","reality":"physical","state":"disconnected","udid":"00000000-HINT000000000001"}]"#)
     }
@@ -252,36 +243,5 @@ struct WakeOrderTests {
         _ = try await selectDevice(from: [hintedDuo, second, idlePad], query: nil, narrowByCapability: { $0 },
                                    choose: { $0[0] }, wake: waker.wake)
         #expect(waker.calls == [[hintedDuo, second]])
-    }
-}
-
-@Suite("起こせなかった理由")
-struct WakeFailureReasonTests {
-    @Test func 標準出力の_Error_行を取り出す_終了コードが0でも() {
-        // 端末がロック中のとき、devicectl は終了コード 0 で、標準出力に理由を出す(実機で確認)
-        let stdout = """
-            Gathering device information...
-            WARNING: Unable to retrieve complete information for this device.
-                     Error: The operation failed because the device was still locked.
-            Current device information:
-            """
-        #expect(wakeFailureReason(stdout: stdout, stderr: "", status: 0) == "The operation failed because the device was still locked.")
-    }
-
-    @Test func 標準エラーの_Error_行も見る() {
-        #expect(wakeFailureReason(stdout: "", stderr: "Error: timed out\n", status: 1) == "timed out")
-    }
-
-    @Test func 複数あれば_最初の行() {
-        #expect(wakeFailureReason(stdout: "Error: first\nError: second", stderr: "Error: third", status: 1) == "first")
-    }
-
-    @Test func Error_行が無くて終了コードが0以外なら_終了コードを理由にする() {
-        #expect(wakeFailureReason(stdout: "x", stderr: "y", status: 3) == "exit status 3")
-    }
-
-    @Test func 成功で_理由もなければ_nil() {
-        #expect(wakeFailureReason(stdout: "Current device information:", stderr: "", status: 0) == nil)
-        #expect(wakeFailureReason(stdout: "", stderr: "", status: 0) == nil)
     }
 }

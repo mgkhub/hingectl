@@ -83,7 +83,7 @@ public struct CoreDeviceInfoRecord: Decodable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         identifier = try? container.decodeIfPresent(String.self, forKey: .identifier)
-        let rawValues = (try? container.decodeIfPresent([RawValue].self, forKey: .values)) ?? []
+        let rawValues = (container.lenient([Lossy<RawValue>].self, forKey: .values) ?? []).compactMap(\.value)
 
         var nameVal: String?
         var udidVal: String?

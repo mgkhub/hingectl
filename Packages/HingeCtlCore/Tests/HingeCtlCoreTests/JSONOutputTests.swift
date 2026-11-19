@@ -123,13 +123,13 @@ struct JSONOutputTests {
 
     @Test func デコードした実機の応答から_出力まで通る() throws {
         let response = Data(#"""
-            {"info":{"outcome":"success"},"result":{"displays":[
+            {"displays":[
               {"name":"LCD","displayId":1,"uniqueId":"c","primary":true,"active":false,"backlightState":"off",
                "currentOrientation":"rot0","nativeSize":[1398,2034],"pointScale":3,"type":{"integrated":{}}},
               {"name":"LCD-1","displayId":2,"uniqueId":"i","primary":false,"active":true,"backlightState":"activeOn",
-               "currentOrientation":"rot90","nativeSize":[1878,2670],"pointScale":3,"type":{"integrated":{}}}]}}
+               "currentOrientation":"rot90","nativeSize":[1878,2670],"pointScale":3,"type":{"integrated":{}}}]}
             """#.utf8)
-        let (displays, active) = try decodeDisplays(stdout: response, stderr: "", label: "device info displays")
+        let (displays, active) = try decodeDisplays(data: response)
         let output = PostureOutput(udid: "U-1", name: "Test Duo", mechanicalAngle: 180, orientation: .known(.portrait), displays: displays, active: active)
         #expect(encodeJSON(output) == encodeJSON(PostureOutput(udid: "U-1", name: "Test Duo", mechanicalAngle: 180, orientation: .known(.portrait), displays: foldedOpen, active: 1)))
 
