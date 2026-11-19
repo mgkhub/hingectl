@@ -192,6 +192,27 @@ struct StoreTests {
         #expect(detail.orientation == .landscapeLeft)
     }
 
+    @Test func デバイス側で向きが変わると_定期ポーリングで表示の向きが連動して更新される() async throws {
+        let backend = FakeBackend(devices: [entry("Duo")])
+        let (store, _) = makeStore(backend)
+        store.defaultOrientationPollInterval = .milliseconds(10)
+        let detail = await select(store, "Duo")
+        #expect(detail.orientation == .portrait)
+        #expect(detail.posture?.orientation == .known(.portrait))
+
+        // デバイス側で向きが変わる(シミュレータの回転や実機の姿勢変更など)
+        backend.session.orientationResult = .landscapeRight
+        backend.session.postureResult = PostureSnapshot(mechanicalAngle: 180, sensorAngle: 180, orientation: .known(.landscapeRight), displays: [], active: nil)
+
+        // Orientation 選択ボタンは自動更新されるが、Posture 欄は一貫性のため自動更新されない
+        #expect(await eventually { detail.orientation == .landscapeRight })
+        #expect(detail.posture?.orientation == .known(.portrait))
+
+        // Posture 欄は Refresh ボタンで明示的に更新する
+        await detail.refreshPosture()
+        #expect(detail.posture?.orientation == .known(.landscapeRight))
+    }
+
     @Test func スクリーンショットは_ヒンジ非対応でも撮れる() async throws {
         let backend = FakeBackend(devices: [entry("SE")])
         backend.session.supportResult = .unsupported

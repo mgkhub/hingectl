@@ -19,6 +19,8 @@ public final class DeviceStore {
     }
 
     public let log: AppLog
+    /// 詳細画面の向きポーリング間隔の初期値(テストで短縮可能)
+    public var defaultOrientationPollInterval: Duration = .seconds(1)
     private let backend: any HingeBackend
     private var pollTask: Task<Void, Never>?
     private var activeRefreshTask: Task<Void, Never>?
@@ -91,7 +93,7 @@ public final class DeviceStore {
         detail?.disconnect()
         detail = nil
         guard let selectedID, let entry = entries.first(where: { $0.id == selectedID }) else { return }
-        let store = DeviceDetailStore(entry: entry, backend: backend, log: log)
+        let store = DeviceDetailStore(entry: entry, backend: backend, log: log, orientationPollInterval: defaultOrientationPollInterval)
         detail = store
         Task { await store.connect() }
     }

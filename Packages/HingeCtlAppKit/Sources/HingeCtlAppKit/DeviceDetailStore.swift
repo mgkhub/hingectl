@@ -39,6 +39,9 @@ public final class DeviceDetailStore {
     /// ドラッグ中に送る間隔の下限。約 60Hz(`sweep` の実測で、連続送信は問題なし)。
     public var minSendInterval: Duration = .milliseconds(16)
 
+    /// 向きの定期取得の間隔(デバイス側の回転と GUI を双方向連動させる。テストで短縮可能)。
+    public var orientationPollInterval: Duration = .seconds(1)
+
     private let backend: any HingeBackend
     private let log: AppLog
     /// `disconnect()` のたびに進める。途中の `connect()` が、`await` から戻ったときに、自分の世代が古ければ、何もせずに終わる
@@ -47,17 +50,20 @@ public final class DeviceDetailStore {
     private var session: (any HingeSession)?
     private var streamTask: Task<Void, Never>?
     private var sweepTask: Task<Void, Never>?
+    private var orientationPollTask: Task<Void, Never>?
 
     private var sender: (any AngleSender)?
     private var pumpTask: Task<Void, Never>?
     private var pendingAngle: Double?
     private var sentSinceFlush = false
     private var lastSent: ContinuousClock.Instant?
+    private var lastUserOrientationActionInstant: ContinuousClock.Instant?
 
-    public init(entry: DeviceEntry, backend: any HingeBackend, log: AppLog) {
+    public init(entry: DeviceEntry, backend: any HingeBackend, log: AppLog, orientationPollInterval: Duration = .seconds(1)) {
         self.entry = entry
         self.backend = backend
         self.log = log
+        self.orientationPollInterval = orientationPollInterval
     }
 
     public var isBusy: Bool { busyLabel != nil }
@@ -118,6 +124,7 @@ public final class DeviceDetailStore {
             support = supported
             phase = .ready
             if support == .supported { startStreaming(opened) }
+            startOrientationPolling(opened)
             await readPosture()
         } catch {
             guard mine == generation else { return }
@@ -141,6 +148,9 @@ public final class DeviceDetailStore {
         sweepTask = nil
         pumpTask?.cancel()
         pumpTask = nil
+        orientationPollTask?.cancel()
+        orientationPollTask = nil
+        lastUserOrientationActionInstant = nil
         pendingAngle = nil
         sender = nil
         sentSinceFlush = false
@@ -165,6 +175,36 @@ public final class DeviceDetailStore {
             } catch is CancellationError {
             } catch {
                 self?.streamError = Self.message(error)
+            }
+        }
+    }
+
+    private func startOrientationPolling(_ session: any HingeSession) {
+        orientationPollTask = Task { [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                do {
+                    let interval = self?.orientationPollInterval ?? .seconds(1)
+                    try await clock.sleep(for: interval)
+                    guard let self else { break }
+                    let mine = self.generation
+                    // 操作実行中、ドラッグ中、切断・再接続待ち、または直前のユーザー操作直後はスキップ
+                    guard !self.isBusy, !self.isDragging, !self.needsReconnect else { continue }
+                    if let lastAction = self.lastUserOrientationActionInstant, clock.now - lastAction < .milliseconds(1500) {
+                        continue
+                    }
+                    guard let latest = try await session.orientation() else { continue }
+                    // await から復帰した直後にも状態を再検証(非同期取得中の競合・世代交代を排除)
+                    guard !Task.isCancelled, mine == self.generation, !self.isBusy, !self.isDragging else { continue }
+                    if let lastAction = self.lastUserOrientationActionInstant, clock.now - lastAction < .milliseconds(1500) {
+                        continue
+                    }
+                    self.updateOrientation(latest)
+                } catch is CancellationError {
+                    break
+                } catch {
+                    continue
+                }
             }
         }
     }
@@ -253,14 +293,27 @@ public final class DeviceDetailStore {
         let done: Void? = await perform("Setting orientation", requiresHinge: false) { session, timeout in
             try await session.setOrientation(name, timeout: timeout)
         }
-        if done != nil { orientation = name }
+        if done != nil {
+            lastUserOrientationActionInstant = ContinuousClock().now
+            updateOrientation(name)
+        }
     }
 
     public func rotate(_ direction: RotationDirection) async {
         let result = await perform("Rotating", requiresHinge: false) { session, timeout in
             try await session.rotate(direction, timeout: timeout)
         }
-        if let result { orientation = result }
+        if let result {
+            lastUserOrientationActionInstant = ContinuousClock().now
+            updateOrientation(result)
+        }
+    }
+
+    /// 向きの更新を反映する(Orientation 選択ボタンの選択状態)。
+    /// Posture の各項目(Angle, Orientation, Display)はスナップショットのため、Refresh ボタンでのみ更新する。
+    private func updateOrientation(_ name: OrientationName) {
+        guard orientation != name else { return }
+        orientation = name
     }
 
     // MARK: posture・スクリーンショット
@@ -378,6 +431,7 @@ public final class DeviceDetailStore {
         streamTask?.cancel()
         sweepTask?.cancel()
         pumpTask?.cancel()
+        orientationPollTask?.cancel()
     }
 
     static func message(_ error: Error) -> String {

@@ -22,6 +22,7 @@ final class FakeSession: HingeSession, @unchecked Sendable {
     private struct State {
         var supportResult: HingeSupport = .supported
         var postureResult = PostureSnapshot(mechanicalAngle: 180, sensorAngle: 180, orientation: .known(.portrait), displays: [], active: nil)
+        var orientationResult: OrientationName? = .portrait
         var setAngleError: Error?
         var screenshotError: Error?
         var calls: [String] = []
@@ -33,6 +34,7 @@ final class FakeSession: HingeSession, @unchecked Sendable {
 
     var supportResult: HingeSupport { get { state[\.supportResult] } set { state[\.supportResult] = newValue } }
     var postureResult: PostureSnapshot { get { state[\.postureResult] } set { state[\.postureResult] = newValue } }
+    var orientationResult: OrientationName? { get { state[\.orientationResult] } set { state[\.orientationResult] = newValue } }
     var setAngleError: Error? { get { state[\.setAngleError] } set { state[\.setAngleError] = newValue } }
     var screenshotError: Error? { get { state[\.screenshotError] } set { state[\.screenshotError] = newValue } }
     var calls: [String] { state[\.calls] }
@@ -76,7 +78,10 @@ final class FakeSession: HingeSession, @unchecked Sendable {
     func addSent(_ degrees: Double) { state.mutate { $0.sent.append(degrees) } }
     func addFlush() { state.mutate { $0.flushCount += 1 } }
 
-    func orientation() async throws -> OrientationName? { .portrait }
+    func orientation() async throws -> OrientationName? {
+        record("orientation")
+        return orientationResult
+    }
 
     func setOrientation(_ name: OrientationName, timeout: Double) async throws { record("orient \(name.rawValue)") }
 
