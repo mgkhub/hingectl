@@ -421,6 +421,23 @@ struct DevicesTests {
             """)
     }
 
+    @Test func 判定できなかった端末は_エラーに添える() async throws {
+        let message: String?
+        do {
+            // 重複して判定不能として報告されても、1 台につき 1 行だけ示す
+            _ = try await selectDevice(from: [phone, simDuo], query: nil, narrowByCapability: { _ in [] }, undetermined: { [phone, away, phone] })
+            message = nil
+        } catch let error as CLIError { message = error.description }
+        // 接続中の候補に含まれる端末だけを示す
+        #expect(message == """
+            No connected device supports the hinge; to use one anyway, specify it with -d <udid|name>:
+              \(phone.udid)  Test Phone
+              \(simDuo.udid)  Sim Duo  [simulator]
+            Could not determine whether these support the hinge (they may, if the failure was temporary; try again):
+              \(phone.udid)  Test Phone
+            """)
+    }
+
     @Test func 問い合わせが中止されたらそのエラーが伝わる() async {
         struct Cancelled: Error {}
         do {
@@ -532,6 +549,15 @@ struct DevicesTests {
             #expect(error.description == "No device was selected", "\(inputs)")
             #expect(output.hasSuffix("\n"), "EOF のあと、プロンプトの行を閉じる")
         }
+    }
+
+    @Test func 暗黙の選択の通知は名前と種類とUDIDを含む() {
+        let real = DeviceEntry(id: "P1", name: "iPhone Duo", udid: "00008160-AAAA", connectionState: "connected")
+        let sim = DeviceEntry(id: "S1", name: "iPhone Duo", udid: "S1-UDID", connectionState: "connected", reality: .simulated)
+        #expect(implicitSelectionNote(real).contains("physical device"))
+        #expect(implicitSelectionNote(real).contains("00008160-AAAA"))
+        #expect(implicitSelectionNote(sim).contains("simulator"))
+        #expect(implicitSelectionNote(sim).contains("pass -d"))
     }
 }
 

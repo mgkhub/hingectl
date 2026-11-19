@@ -74,7 +74,23 @@ final class RemoteDirectory {
 /// ヒンジ角に対応しているか。候補の絞り込み・表示に使う、対応の判定の入口。
 /// (`openHingeStream` は、購読の失敗を `CLIError` にするため、別に確認する。)
 /// 非対応(capability が無い・`supportsHingeAngle` が false)と、問い合わせの失敗(`unknown`)を区別する。
-func hingeSupport(_ device: RemoteDevice) async -> HingeSupport {
+/// 失敗(`unknown`)は、接続の直後などの一時的なものがあるので、短い間隔で数回やり直す。
+func hingeSupport(_ device: RemoteDevice, attempts: Int = 3, interval: Duration = .milliseconds(500)) async -> HingeSupport {
+    var support = await queryHingeSupport(device)
+    var remaining = attempts - 1
+    while case .unknown = support, remaining > 0 {
+        do {
+            try await Task.sleep(for: interval)
+        } catch {
+            break
+        }
+        support = await queryHingeSupport(device)
+        remaining -= 1
+    }
+    return support
+}
+
+private func queryHingeSupport(_ device: RemoteDevice) async -> HingeSupport {
     do {
         let supported = try await device.getImplementation(for: .monitorMotion).motionManager().supportsHingeAngle
         return supported ? .supported : .unsupported
@@ -102,31 +118,66 @@ func requireHinge(_ device: RemoteDevice, name: String) async throws {
 func resolveRemoteDevice(_ query: String?, choose: (([DeviceEntry]) async throws -> DeviceEntry)?) async throws -> (RemoteDevice, DeviceEntry) {
     let entries = try listDevices()
     let directory = RemoteDirectory(entries: entries)
+    // 利用者が選んだのか(対話)、1 台に絞れて自動で決まったのか、を区別する
+    var askedUser = false
+    let chosenByUser: (([DeviceEntry]) async throws -> DeviceEntry)? = choose.map { choose in
+        { candidates in
+            askedUser = true
+            return try await choose(candidates)
+        }
+    }
+    var undetermined: [DeviceEntry] = []
     let chosen = try await selectDevice(from: entries, query: query, narrowByCapability: { connected in
-        var foldable: [DeviceEntry] = []
+        // CoreDevice の RemoteDevice を解決(既知のデバイスのみ候補にする)
+        var remotes: [(entry: DeviceEntry, remote: RemoteDevice)] = []
         for entry in connected {
-            // CoreDevice がまだ知らないデバイスは、候補にしない
-            guard let remote = await directory.remote(for: entry) else { continue }
-            switch await hingeSupport(remote) {
+            if let remote = await directory.remote(for: entry) {
+                remotes.append((entry, remote))
+            }
+        }
+        guard !remotes.isEmpty else { return [] }
+
+        // 不明(unknown)な端末が複数台あっても待ち時間が累積しないよう、ヒンジ対応の判定を並行して行う。
+        // リストの順序を保つため、元のインデックスを保持してソートする。
+        typealias CheckResult = (index: Int, entry: DeviceEntry, support: HingeSupport)
+        let results = await withTaskGroup(of: CheckResult.self) { group in
+            for (index, pair) in remotes.enumerated() {
+                group.addTask {
+                    let support = await hingeSupport(pair.remote)
+                    return (index, pair.entry, support)
+                }
+            }
+            var collected: [CheckResult] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected.sorted { $0.index < $1.index }
+        }
+
+        var foldable: [DeviceEntry] = []
+        for result in results {
+            switch result.support {
             case .supported:
-                foldable.append(entry)
+                foldable.append(result.entry)
             case .unsupported:
                 break
             case .unknown(let reason):
-                // 一時的な失敗で、対応デバイスが候補から消えないよう、残す(実行時に、改めて確認される)
-                HingeLog.warn("cannot determine whether \(entry.name) supports the hinge: \(reason)")
-                foldable.append(entry)
+                // やり直しても分からないデバイスは、誤って選ばないよう、候補から外す(`-d` で指定すれば、実行時に改めて確認される)
+                HingeLog.warn("cannot determine whether \(result.entry.name) supports the hinge, so it is not a candidate: \(reason)")
+                if !undetermined.contains(where: { $0.id == result.entry.id }) { undetermined.append(result.entry) }
             }
         }
         return foldable
-    }, choose: choose, wake: { idle in
+    }, choose: chosenByUser, wake: { idle in
         let woken = await wakeDevices(idle)
         directory.refreshPhysical()
         return woken
-    })
+    }, undetermined: { undetermined })
     guard let remote = await directory.remote(for: chosen) else {
         throw CLIError("CoreDevice does not recognize \(chosen.name)")
     }
+    // `-d` も `$HINGECTL_DEVICE` も無く、聞かれもせずに決まったときは、どのデバイスかを知らせる
+    if query == nil && !askedUser { HingeLog.note(implicitSelectionNote(chosen)) }
     return (remote, chosen)
 }
 

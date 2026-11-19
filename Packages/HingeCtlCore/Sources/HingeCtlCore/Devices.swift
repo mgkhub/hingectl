@@ -109,6 +109,12 @@ public func listLine(_ entry: DeviceEntry) -> String {
     "\(entry.udid)  \(entry.name)  (\(entry.connectionState.text))" + (entry.isSimulator ? "  [simulator]" : "")
 }
 
+/// `-d` を省略して、対象が 1 台に決まったとき、標準エラーへ出す 1 行。
+/// 入力を送るコマンドなどが、意図しないデバイスへ黙って届くのを防ぐ。
+public func implicitSelectionNote(_ entry: DeviceEntry) -> String {
+    "using \(entry.name) (\(entry.isSimulator ? "simulator" : "physical device")) \(entry.udid), the only connected device that supports the hinge; pass -d to choose another"
+}
+
 private func deviceLabel(_ entry: DeviceEntry) -> String {
     "\(entry.udid)  \(entry.name)" + (entry.isSimulator ? "  [simulator]" : "")
 }
@@ -168,7 +174,8 @@ public func selectDevice(
     query: String?,
     narrowByCapability: ([DeviceEntry]) async -> [DeviceEntry],
     choose: (([DeviceEntry]) async throws -> DeviceEntry)? = nil,
-    wake: ([DeviceEntry]) async -> [DeviceEntry] = { _ in [] }
+    wake: ([DeviceEntry]) async -> [DeviceEntry] = { _ in [] },
+    undetermined: () -> [DeviceEntry] = { [] }
 ) async throws -> DeviceEntry {
     var chosen: DeviceEntry
     if let query {
@@ -196,7 +203,14 @@ public func selectDevice(
         case 1:
             chosen = foldable[0]
         case 0:
-            throw CLIError("No connected device supports the hinge; to use one anyway, specify it with -d <udid|name>:\n\(deviceList(candidates))")
+            var message = "No connected device supports the hinge; to use one anyway, specify it with -d <udid|name>:\n\(deviceList(candidates))"
+            // 判定できなかっただけの端末は、対応しているかもしれない(一時的な失敗なら、やり直せば分かる)
+            var seen = Set<String>()
+            let unknown = undetermined().filter { u in candidates.contains { $0.id == u.id } && seen.insert(u.id).inserted }
+            if !unknown.isEmpty {
+                message += "\nCould not determine whether these support the hinge (they may, if the failure was temporary; try again):\n\(deviceList(unknown))"
+            }
+            throw CLIError(message)
         default:
             guard let choose else {
                 throw CLIError("Cannot narrow down to one device; specify one with -d <udid|name>:\n\(deviceList(foldable))")
