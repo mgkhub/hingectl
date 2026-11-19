@@ -95,3 +95,8 @@ targets:
         FRAMEWORK_SEARCH_PATHS: /Library/Developer/PrivateFrameworks
         LD_RUNPATH_SEARCH_PATHS: $(inherited) /Library/Developer/PrivateFrameworks
         OTHER_LDFLAGS: -framework CoreDevice -framework CoreDeviceUtilities
+schemes:
+  HingeCtlApp:
+    build:
+      targets:
+        HingeCtlApp: all

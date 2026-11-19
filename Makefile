@@ -41,7 +41,7 @@ test:
 	swift test --package-path Packages/HingeCtlAppKit --scratch-path $(TEST_SCRATCH)
 
 app: generate-xcodeproj
-	$(WITH_XCODE) xcodebuild -project $(APP_PROJECT) -scheme HingeCtlApp -configuration Release -derivedDataPath $(APP_DERIVED) -quiet build
+	$(WITH_XCODE) xcodebuild -project $(APP_PROJECT) -scheme HingeCtlApp -configuration Release -destination 'platform=macOS,arch=arm64e' -derivedDataPath $(APP_DERIVED) -quiet build
 	@echo "Build complete: $(CURDIR)/$(APP_BUNDLE)"
 
 run-app: app
