@@ -196,7 +196,7 @@ struct DisplayRecord: Decodable {
             primary: primary ?? false,
             active: active ?? backlight.isLit,
             backlight: backlight,
-            rotation: currentOrientation ?? "unknown",
+            rotation: currentOrientation.map { DisplayRotation($0) } ?? .unknown,
             width: nativeSize?.first,
             height: (nativeSize?.count ?? 0) > 1 ? nativeSize?[1] : nil,
             scale: pointScale

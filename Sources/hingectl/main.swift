@@ -3,7 +3,7 @@ import HingeCtlCore
 import HingeCtlDevice
 
 // hingectl: iPhone Duo(実機と、Mac 上のシミュレータ)のヒンジ角・向きを、CoreDevice 経由で操作する Mac 用 CLI。
-// 引数の解釈(swift-argument-parser)・向きや sweep の計算・devicectl の出力の解析は HingeCtlCore(Packages/HingeCtlCore)にあり、
+// 引数の解釈(swift-argument-parser)・向きや sweep の計算・CoreDevice モデルの解析は HingeCtlCore(Packages/HingeCtlCore)にあり、
 // CoreDevice を呼ぶ部分は HingeCtlDevice(Packages/HingeCtlDevice)にあり、ここでは、解釈済みの `Request` を実行して出力を整える。
 
 setvbuf(stdout, nil, _IOLBF, 0)
@@ -80,9 +80,9 @@ func execute(_ request: Request) async throws {
     case .list:
         break
     case .setAngle(let degrees):
-        try await device.setAngle(degrees, timeout: timeout)
+        print(angleText(try await device.setAngle(degrees, timeout: timeout)))
     case .sweep(let plan):
-        try await device.sweep(from: plan.from, to: plan.to, seconds: plan.seconds, timeout: timeout)
+        print(angleText(try await device.sweep(from: plan.from, to: plan.to, seconds: plan.seconds, timeout: timeout)))
     case .get(let sensor):
         let reading = try await device.readAngle()
         let value = sensor ? reading.sensorAngle : reading.mechanicalAngle
@@ -96,7 +96,8 @@ func execute(_ request: Request) async throws {
     case .rotate(let direction):
         print(try await device.rotate(direction, timeout: timeout).rawValue)
     case .orient(let name):
-        try await device.setOrientation(name, timeout: timeout)
+        // 実行後に読み戻した向きを表示する(`rotate` と同じ)
+        print(orientationText(try await device.setOrientation(name, timeout: timeout)))
     case .orientation:
         let orientation = try await device.orientation()
         request.json ? printJSON(OrientationOutput(orientation: orientation)) : print(orientationText(orientation))

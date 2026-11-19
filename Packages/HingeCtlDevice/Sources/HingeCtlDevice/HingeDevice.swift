@@ -66,11 +66,15 @@ public struct HingeDevice: @unchecked Sendable {
         }
     }
 
-    public func setAngle(_ degrees: Double, timeout: Double) async throws {
+    /// 戻り値は、実行後に読み戻した角度(mechanicalAngle)。
+    @discardableResult
+    public func setAngle(_ degrees: Double, timeout: Double) async throws -> Double? {
         try await setHingeAngle(remote, degrees: degrees, timeout: timeout)
     }
 
-    public func sweep(from: Double, to: Double, seconds: Double, timeout: Double) async throws {
+    /// 戻り値は、掃引完了後に読み戻した角度(mechanicalAngle。読めなければ nil)。
+    @discardableResult
+    public func sweep(from: Double, to: Double, seconds: Double, timeout: Double) async throws -> Double? {
         try await sweepHingeAngle(remote, deviceID: entry.id, from: from, to: to, seconds: seconds, timeout: timeout)
     }
 
@@ -80,13 +84,19 @@ public struct HingeDevice: @unchecked Sendable {
 
     public func orientation() async throws -> OrientationName? { try await currentOrientation(remote) }
 
-    public func setOrientation(_ name: OrientationName, timeout: Double) async throws {
+    /// 戻り値は、実行後に読み戻した向き(読めなければ nil)。
+    /// `-t 0` で、反映が間に合わず、指定と違う向きが読み戻されたときは、警告する。
+    @discardableResult
+    public func setOrientation(_ name: OrientationName, timeout: Double) async throws -> OrientationName? {
         try await HingeCtlDevice.setOrientation(remote, name: name, timeout: timeout)
     }
 
+    /// 戻り値は、実行後に読み戻した向き。
+    /// `-t 0` で、反映が間に合わず、目標と違う向きが読み戻されたときは、警告する。
     @discardableResult
     public func rotate(_ direction: RotationDirection, timeout: Double) async throws -> OrientationName {
-        try await rotateOrientation(remote, direction: direction, timeout: timeout)
+        let (actual, _) = try await rotateOrientation(remote, direction: direction, timeout: timeout)
+        return actual
     }
 
     /// ディスプレイ情報(プロセス内の CoreDevice から取得)。

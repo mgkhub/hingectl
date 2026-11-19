@@ -23,6 +23,30 @@ extension OrientationName {
         case (.right, .landscapeLeft): return .portrait
         }
     }
+
+    /// ディスプレイの描画回転(rot0/rot90/rot180/rot270)から端末の論理向きを逆算する。
+    /// 内側画面(iPhone Duo の LCD-1)はパネルが 90° 回転して内蔵されているため、基準角が rot90 となる。
+    public init?(rotation: DisplayRotation, isInnerDisplay: Bool) {
+        if isInnerDisplay {
+            // Duo 内側画面(LCD-1): rot90 が portrait 基準
+            switch rotation {
+            case .rot90:  self = .portrait
+            case .rot0:   self = .landscapeLeft
+            case .rot180: self = .landscapeRight
+            case .rot270: self = .portraitUpsideDown
+            case .unknown: return nil
+            }
+        } else {
+            // 標準画面(通常 iPhone, iPad, Duo 外側 LCD): rot0 が portrait 基準
+            switch rotation {
+            case .rot0:   self = .portrait
+            case .rot270: self = .landscapeLeft
+            case .rot90:  self = .landscapeRight
+            case .rot180: self = .portraitUpsideDown
+            case .unknown: return nil
+            }
+        }
+    }
 }
 
 /// 向きの表示。デバイスが使える向きを報告しない(`nil`)ときは `unknown`。

@@ -143,11 +143,11 @@ struct StoreTests {
 
     @Test func 設定の失敗は_ログへ出し_操作できる状態に戻る() async throws {
         let backend = FakeBackend(devices: [entry("Duo")])
-        backend.session.setAngleError = CLIError("The hinge angle did not reach 90.0° within 2.0 seconds")
+        backend.session.setAngleError = CLIError("The hinge angle did not reach 90.0° within 2.0 seconds (pass -t 0 to send without waiting)")
         let (store, log) = makeStore(backend)
         let detail = await select(store, "Duo")
         await detail.setAngle(90)
-        #expect(log.lines.last?.text == "Setting angle failed: The hinge angle did not reach 90.0° within 2.0 seconds")
+        #expect(log.lines.last?.text == "Setting angle failed: The hinge angle did not reach 90.0° within 2.0 seconds (pass -t 0 to send without waiting)")
         #expect(detail.busyLabel == nil)
     }
 

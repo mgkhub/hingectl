@@ -8,4 +8,6 @@ public struct CLIError: Error, CustomStringConvertible, LocalizedError {
     public var errorDescription: String? { description }
 }
 
-public func angleText(_ degrees: Double) -> String { String(format: "%.1f", degrees) }
+public func angleText(_ degrees: Double?) -> String {
+    degrees.map { String(format: "%.1f", $0) } ?? "unknown"
+}

@@ -310,30 +310,67 @@ struct HingeSender {
 /// そのため、確認しない場合でも、送信後にこの時間だけ待ってから終了する。
 let hidFlushDelay = Duration.milliseconds(300)
 
+/// 送信開始時刻からの経過時間を考慮し、hidFlushDelay (300ms) の残余時間だけスリープする。
+func sleepRemainingHidFlush(since sentAt: ContinuousClock.Instant, total: Duration = hidFlushDelay) async throws {
+    let elapsed = ContinuousClock.now - sentAt
+    if total > elapsed {
+        try await Task.sleep(for: total - elapsed)
+    }
+}
+
+/// タイムアウト時の CLIError を一貫したトーン＆マナーで生成する。
+func makeTimeoutError(item: String, target: String, timeout: Double, reason: String? = nil) -> CLIError {
+    let base = "The \(item) did not \(target) within \(String(format: "%.1f", timeout)) seconds"
+    if let reason {
+        return CLIError("\(base) (\(reason); pass -t 0 to send without waiting)")
+    } else {
+        return CLIError("\(base) (pass -t 0 to send without waiting)")
+    }
+}
+
+/// 読み戻し値が目標と乖離している場合の警告を出力する。
+func warnMismatch(actual: String, target: String, item: String, context: String) {
+    HingeLog.warn("the \(item) read back is \(actual), not \(target) (\(context))")
+}
+
 /// 角度を送り、`timeout` 秒以内に CoreDevice が報告する角度が目標(±0.5°)に達するのを確認する。
 /// `timeout` が 0 以下なら、確認せずに送るだけ(ただし、送信を流し切る待ちは入れる)。
-func setHingeAngle(_ device: RemoteDevice, degrees: Double, timeout: Double) async throws {
+/// 戻り値は、完了後に読み戻した角度(読めなければ nil)。
+@discardableResult
+func setHingeAngle(_ device: RemoteDevice, degrees: Double, timeout: Double) async throws -> Double? {
     let sender = try await HingeSender(device: device)
+    let sentAt = ContinuousClock.now
+
     guard timeout > 0 else {
         try sender.send(degrees)
-        try await Task.sleep(for: hidFlushDelay)
-        return
+        try await sleepRemainingHidFlush(since: sentAt)
+        if let actual = try? await readHingeAngle(device, timeout: 0.5) {
+            let angle = actual.mechanicalAngle
+            if abs(angle - degrees) > hingeAngleTolerance {
+                warnMismatch(actual: angleText(angle), target: angleText(degrees), item: "angle", context: "not applied yet, or changed concurrently")
+            }
+            return angle
+        } else {
+            HingeLog.warn("could not read back the current angle (not applied yet, or changed concurrently)")
+            return nil
+        }
     }
 
     // 購読を先に開いてから送る(開始直後の現在値が既に目標なら、すぐ確認できる)。
     let readings = try await openHingeReadings(device)
     try sender.send(degrees)
-    let sentAt = ContinuousClock.now
 
     // 判定の回数(1 回目は購読開始直後の現在値)
     final class State: @unchecked Sendable { var checked = 0 }
     let state = State()
 
+    let deadline = sentAt + .seconds(timeout)
+
     // 判定は常に物理ヒンジ角(mechanicalAngle)を対象とする。
     // sensorAngle はパネル表面角であり、端点付近で先行して 0°/180° にスナップするため到達判定には使わない。
     // スナップ領域では CoreDevice デーモンからのストリーム通知が途絶えることがあるため、
     // ストリーム監視と定期静定確認(readHingeAngle)を並行して行い、どちらか早い方で確実に到達を検知する。
-    try await withThrowingTaskGroup(of: Void.self) { group in
+    return try await withThrowingTaskGroup(of: Double.self) { group in
         // タスク 1: ストリームからの変化イベント監視
         group.addTask {
             let result: FirstElement<[HingeReading]>
@@ -346,35 +383,36 @@ func setHingeAngle(_ device: RemoteDevice, degrees: Double, timeout: Double) asy
                 throw hingeStreamFailure(error)
             }
             switch result {
-            case .found:
+            case .found(let batch):
+                let reached = batch.last(where: { abs($0.mechanicalAngle - degrees) <= hingeAngleTolerance })?.mechanicalAngle ?? degrees
                 if state.checked == 1 {
-                    let remaining = hidFlushDelay - (ContinuousClock.now - sentAt)
-                    if remaining > .zero { try await Task.sleep(for: remaining) }
+                    try await sleepRemainingHidFlush(since: sentAt)
                 }
-                return
+                return reached
             case .timedOut, .ended:
-                throw CLIError(String(format: "The hinge angle did not reach %.1f° within %.1f seconds", degrees, timeout))
+                throw makeTimeoutError(item: "hinge angle", target: "reach \(angleText(degrees))°", timeout: timeout)
             }
         }
 
         // タスク 2: 端点スナップや微小変化でストリーム通知が止まった場合の定期静定確認
         group.addTask {
             let clock = ContinuousClock()
-            let deadline = sentAt + .seconds(timeout)
             try await clock.sleep(for: .milliseconds(150))
             while clock.now < deadline {
                 if let current = try? await readHingeAngle(device, timeout: 0.3),
                    abs(current.mechanicalAngle - degrees) <= hingeAngleTolerance {
-                    return
+                    try await sleepRemainingHidFlush(since: sentAt)
+                    return current.mechanicalAngle
                 }
                 try await clock.sleep(for: .milliseconds(150))
             }
-            throw CLIError(String(format: "The hinge angle did not reach %.1f° within %.1f seconds", degrees, timeout))
+            throw makeTimeoutError(item: "hinge angle", target: "reach \(angleText(degrees))°", timeout: timeout)
         }
 
         // どちらか早い方が成功したら即完了し、もう一方をキャンセルする
-        try await group.next()
+        let angle = try await group.next()!
         group.cancelAll()
+        return angle
     }
 }
 
@@ -415,7 +453,8 @@ func waitForDisplaySettle(_ device: RemoteDevice, before: String?, settle: Doubl
 /// 現在角が `from` と違う場合は、掃引の前に `from` へ移動して到達を待ち、ディスプレイの切り替えが落ち着くのも待つ(ディスプレイが複数あるデバイスのみ)。
 /// 待たずに掃引を始めると、`from` へ一気に飛んだ直後に掃引が始まり、`from` 側のディスプレイのアニメーションが
 /// 途中で切られる。`timeout` が 0 以下なら、待たずに始める(確認しない指定と同じ扱い)。
-func sweepHingeAngle(_ device: RemoteDevice, deviceID: String, from: Double, to: Double, seconds: Double, timeout: Double) async throws {
+@discardableResult
+func sweepHingeAngle(_ device: RemoteDevice, deviceID: String, from: Double, to: Double, seconds: Double, timeout: Double) async throws -> Double? {
     if timeout > 0 {
         let current = try await readHingeAngle(device)
         let matches = abs(current.mechanicalAngle - from) <= hingeAngleTolerance || abs(current.sensorAngle - from) <= hingeAngleTolerance
@@ -441,9 +480,36 @@ func sweepHingeAngle(_ device: RemoteDevice, deviceID: String, from: Double, to:
     }
     sender.flush()
     try await Task.sleep(for: hidFlushDelay)
+
+    // 掃引完了後の角度をデバイスから読み戻す
+    if let current = try? await readHingeAngle(device, timeout: timeout > 0 ? min(timeout, 1.0) : 0.5) {
+        let actual = current.mechanicalAngle
+        if abs(actual - to) > hingeAngleTolerance {
+            warnMismatch(actual: angleText(actual), target: angleText(to), item: "angle", context: "not applied yet, or changed concurrently")
+        }
+        return actual
+    } else {
+        HingeLog.warn("could not read back the current angle (not applied yet, or changed concurrently)")
+        return nil
+    }
 }
 
 // MARK: - 向き
+
+private let lastOrientationsLock = NSLock()
+private var lastOrientations: [UUID: OrientationName] = [:]
+
+func getLastKnownOrientation(for id: UUID) -> OrientationName? {
+    lastOrientationsLock.lock()
+    defer { lastOrientationsLock.unlock() }
+    return lastOrientations[id]
+}
+
+func setLastKnownOrientation(_ name: OrientationName, for id: UUID) {
+    lastOrientationsLock.lock()
+    defer { lastOrientationsLock.unlock() }
+    lastOrientations[id] = name
+}
 
 func deviceOrientation(for name: OrientationName) -> DeviceOrientation {
     switch name {
@@ -476,40 +542,90 @@ extension OrientationName {
     }
 }
 
-/// 現在の向き(平置きのときも、最後の平置きでない向き)。デバイスが使える向きを報告しなければ nil。
+/// 現在の向き(端末の論理向き)。
+/// 物理センサーが有効な非平置き姿勢(portrait, landscape 等)を報告していればそれを採用し、
+/// 机の上などの平置き状態(faceUp / faceDown)のときは現在アクティブなディスプレイの描画回転(rotation)から逆算して返す。
+/// 画面の回転が制限されている場合や取得できない場合は、直前の非平置き向きや直近に設定された論理向き(初回は portrait)を返す。
 func currentOrientation(_ device: RemoteDevice) async throws -> OrientationName? {
-    OrientationName(try await orientationControl(device).currentDeviceOrientation().currentDeviceNonFlatOrientation)
+    let ctrl = try await orientationControl(device)
+    let info = try await ctrl.currentDeviceOrientation()
+    // 1. 現在の物理向き(手で持って立てた・回転させた場合はここに portrait/landscape が入る)を最優先
+    if let direct = OrientationName(info.currentDeviceOrientation) {
+        setLastKnownOrientation(direct, for: device.id)
+        return direct
+    }
+    // 2. 平置き(faceUp/faceDown)のときは、アクティブなディスプレイの rotation から逆算
+    if let displays = try? await readDisplaysInProcess(device),
+       let activeIndex = displays.active {
+        let activeDisplay = displays.displays[activeIndex]
+        let isInner = activeDisplay.name.contains("LCD-1")
+        if let inferred = OrientationName(rotation: activeDisplay.rotation, isInnerDisplay: isInner) {
+            setLastKnownOrientation(inferred, for: device.id)
+            return inferred
+        }
+    }
+    // 3. ディスプレイから逆算できない場合(ホーム画面固定・消灯等)は直前の非平置き向きを採用
+    if let nonFlat = OrientationName(info.currentDeviceNonFlatOrientation) {
+        setLastKnownOrientation(nonFlat, for: device.id)
+        return nonFlat
+    }
+    // 4. それもなければキャッシュされた直近の論理向きを採用
+    if let cached = getLastKnownOrientation(for: device.id) {
+        return cached
+    }
+    return .portrait
 }
 
-/// 向きを設定する。`timeout` 秒以内に、読み戻した向きが一致するのを確認する。
-/// 反映が読み戻しに現れるまでには約 0.9 秒かかる(実機で計測)。また、送信直後にプロセスを終了すると、
-/// 読み戻しの有無にかかわらず反映されなかった(待っただけでも、読み戻しを 1 回挟んでも、短いと失敗)。
-/// そのため、一致するまで繰り返し読み戻して、プロセスを生かしておく。
-/// `timeout` が 0 以下なら、一致を確認しても失敗にはせず、反映を待つために最大 2 秒だけ同じ読み戻しを続ける。
-func setOrientation(_ device: RemoteDevice, name: OrientationName, timeout: Double) async throws {
-    _ = try await orientationControl(device).changeDeviceOrientation(deviceOrientation(for: name))
-    let strict = timeout > 0
-    let limit: Duration = .seconds(strict ? timeout : 2.0)
-    let clock = ContinuousClock()
-    let deadline = clock.now + limit
-    while true {
-        try await Task.sleep(for: .milliseconds(200))
-        if try await currentOrientation(device) == name { return }
-        if clock.now >= deadline {
-            if strict { throw CLIError("The orientation did not change to \(name.rawValue) within \(timeout) seconds") }
-            return
+/// 向きを設定する。
+/// `changeDeviceOrientation` は OS のウィンドウマネージャにシミュレートされたデバイス向きイベントを送信する。
+/// 反映が読み戻しやディスプレイ描画に現れるまでには約 0.4〜0.9 秒かかるため、
+/// `timeout` 秒以内に目標の向きが反映されたことを確認して完了する。
+/// `timeout` が 0 以下なら、確認せずに流し切り待機(`hidFlushDelay`)だけ置いて終了する。
+@discardableResult
+func setOrientation(_ device: RemoteDevice, name: OrientationName, timeout: Double) async throws -> OrientationName? {
+    let ctrl = try await orientationControl(device)
+    let sentAt = ContinuousClock.now
+    _ = try await ctrl.changeDeviceOrientation(deviceOrientation(for: name))
+    setLastKnownOrientation(name, for: device.id)
+
+    guard timeout > 0 else {
+        try await sleepRemainingHidFlush(since: sentAt)
+        let actual = try? await currentOrientation(device)
+        if actual != name {
+            warnMismatch(actual: orientationText(actual), target: name.rawValue, item: "orientation", context: "not applied yet, or the device does not allow it")
         }
+        return actual
+    }
+
+    let clock = ContinuousClock()
+    let deadline = clock.now + .seconds(timeout)
+    // timeout に応じて間隔を調整(最小 20ms、最大 100ms)
+    let pollInterval = max(Duration.milliseconds(20), min(Duration.milliseconds(100), .seconds(timeout / 4)))
+
+    while true {
+        let latest = try? await currentOrientation(device)
+        if latest == name {
+            try await sleepRemainingHidFlush(since: sentAt)
+            return latest
+        }
+        let now = clock.now
+        if now >= deadline {
+            throw makeTimeoutError(item: "orientation", target: "change to \(name.rawValue)", timeout: timeout, reason: "the device or app may not allow this orientation")
+        }
+        let remaining = deadline - now
+        try await Task.sleep(for: min(pollInterval, remaining))
     }
 }
 
 /// 現在の向きから 90° 進める(順序は HingeCtlCore の `OrientationName.rotated`)。
-func rotateOrientation(_ device: RemoteDevice, direction: RotationDirection, timeout: Double) async throws -> OrientationName {
+/// 戻り値は、実行後に読み戻した向きと、目標の向き。
+func rotateOrientation(_ device: RemoteDevice, direction: RotationDirection, timeout: Double) async throws -> (actual: OrientationName, target: OrientationName) {
     guard let current = try await currentOrientation(device) else {
         throw CLIError("Cannot interpret the current orientation: unknown")
     }
     let target = current.rotated(direction)
-    try await setOrientation(device, name: target, timeout: timeout)
-    return target
+    let actual = try await setOrientation(device, name: target, timeout: timeout) ?? current
+    return (actual, target)
 }
 
 // MARK: - ディスプレイ情報(プロセス内)

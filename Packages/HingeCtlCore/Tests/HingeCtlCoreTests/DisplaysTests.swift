@@ -170,8 +170,8 @@ struct DisplaysTests {
             "device: Test Duo (U-1)",
             "angle: 180.0",
             "orientation: portrait",
-            "display: LCD (primary) (backlight: off)",
-            "display: LCD-1 (active) (backlight: activeOn)",
+            "display: LCD (primary) (backlight: off) (rotation: rot0)",
+            "display: LCD-1 (active) (backlight: activeOn) (rotation: rot90)",
         ])
     }
 
@@ -185,5 +185,25 @@ struct DisplaysTests {
     @Test func 角度が読めないときの表示() throws {
         let (displays, _) = try decode(foldedOpen)
         #expect(postureLines(udid: "U", name: "N", mechanicalAngle: nil, orientation: .known(.portrait), displays: displays)[1] == "angle: unavailable")
+    }
+
+    // MARK: - rotation からの向き逆算
+
+    @Test func 標準ディスプレイのrotationから向きを逆算できる() {
+        #expect(OrientationName(rotation: .rot0, isInnerDisplay: false) == .portrait)
+        #expect(OrientationName(rotation: .rot270, isInnerDisplay: false) == .landscapeLeft)
+        #expect(OrientationName(rotation: .rot90, isInnerDisplay: false) == .landscapeRight)
+        #expect(OrientationName(rotation: .rot180, isInnerDisplay: false) == .portraitUpsideDown)
+        #expect(OrientationName(rotation: .unknown, isInnerDisplay: false) == nil)
+        #expect(OrientationName(rotation: "invalid", isInnerDisplay: false) == nil)
+    }
+
+    @Test func Duo内側ディスプレイのrotationから向きを逆算できる() {
+        #expect(OrientationName(rotation: .rot90, isInnerDisplay: true) == .portrait)
+        #expect(OrientationName(rotation: .rot0, isInnerDisplay: true) == .landscapeLeft)
+        #expect(OrientationName(rotation: .rot180, isInnerDisplay: true) == .landscapeRight)
+        #expect(OrientationName(rotation: .rot270, isInnerDisplay: true) == .portraitUpsideDown)
+        #expect(OrientationName(rotation: .unknown, isInnerDisplay: true) == nil)
+        #expect(OrientationName(rotation: "invalid", isInnerDisplay: true) == nil)
     }
 }

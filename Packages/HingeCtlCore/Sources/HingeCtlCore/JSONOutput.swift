@@ -46,7 +46,7 @@ public struct DisplayOutput: Encodable, Equatable {
     public let primary: Bool
     public let active: Bool
     public let backlight: String
-    public let rotation: String
+    public let rotation: DisplayRotation
     /// `[幅, 高さ]`。値が無い要素は `null`
     public let size: [Int?]
     public let scale: Int?

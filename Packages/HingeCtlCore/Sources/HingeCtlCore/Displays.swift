@@ -36,6 +36,25 @@ public enum Backlight: Equatable, ExpressibleByStringLiteral {
     }
 }
 
+/// ディスプレイの描画向き(CoreDevice の currentOrientation)。
+public enum DisplayRotation: String, Codable, Equatable, Sendable, CaseIterable, CustomStringConvertible, ExpressibleByStringLiteral {
+    case rot0
+    case rot90
+    case rot180
+    case rot270
+    case unknown
+
+    public init(_ text: String) {
+        self = DisplayRotation(rawValue: text) ?? .unknown
+    }
+
+    public init(stringLiteral value: String) {
+        self.init(value)
+    }
+
+    public var description: String { rawValue }
+}
+
 public struct DisplayState: Equatable {
     public let name: String
     public let uniqueId: String
@@ -43,7 +62,7 @@ public struct DisplayState: Equatable {
     public let primary: Bool
     public var active: Bool
     public let backlight: Backlight
-    public let rotation: String
+    public let rotation: DisplayRotation
     public let width: Int?
     public let height: Int?
     public let scale: Int?
@@ -51,7 +70,7 @@ public struct DisplayState: Equatable {
     public var isLit: Bool { backlight.isLit }
 
     public init(name: String, uniqueId: String, displayId: Int? = nil, primary: Bool, active: Bool, backlight: Backlight,
-                rotation: String = "portrait", width: Int? = nil, height: Int? = nil, scale: Int? = nil) {
+                rotation: DisplayRotation = .rot0, width: Int? = nil, height: Int? = nil, scale: Int? = nil) {
         self.name = name
         self.uniqueId = uniqueId
         self.displayId = displayId
@@ -81,7 +100,8 @@ public func decodeDisplays(data: Data) throws -> (displays: [DisplayState], acti
     return (displays, activeIndex)
 }
 
-/// 読めなかった項目(角度・向き)は `unavailable` と表示する。
+/// 読めなかった項目(角度・向き)は `unavailable` と表示する。ディスプレイの `rotation` は、そのディスプレイが、いま描いている向き
+/// (`rot0` / `rot90` / `rot180` / `rot270`。読めなければ `unknown`)。端末の向き(`orientation`)と違い、アプリが、その向きを許さないと、変わらない。
 public func postureLines(
     udid: String, name: String, mechanicalAngle: Double?, sensorAngle: Double? = nil, orientation: OrientationField, displays: [DisplayState]
 ) -> [String] {
@@ -105,7 +125,7 @@ public func postureLines(
         var flags = ""
         if display.primary { flags += " (primary)" }
         if display.active { flags += " (active)" }
-        lines.append("display: \(display.name)\(flags) (backlight: \(display.backlight.text))")
+        lines.append("display: \(display.name)\(flags) (backlight: \(display.backlight.text)) (rotation: \(display.rotation))")
     }
     return lines
 }

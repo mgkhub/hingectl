@@ -6,7 +6,7 @@ import Testing
 // 期待値のうち posture は、実機で取った出力と同じ形(UDID・名前だけ架空)。
 
 private func state(_ name: String, id: Int?, primary: Bool, active: Bool, backlight: Backlight,
-                   rotation: String, width: Int?, height: Int?, scale: Int?) -> DisplayState {
+                   rotation: DisplayRotation, width: Int?, height: Int?, scale: Int?) -> DisplayState {
     DisplayState(name: name, uniqueId: "", displayId: id, primary: primary, active: active, backlight: backlight,
                  rotation: rotation, width: width, height: height, scale: scale)
 }

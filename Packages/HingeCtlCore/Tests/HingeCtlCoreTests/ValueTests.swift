@@ -10,6 +10,7 @@ struct ValueTests {
         #expect(angleText(180) == "180.0")
         #expect(angleText(119.96) == "120.0")
         #expect(angleText(0) == "0.0")
+        #expect(angleText(nil) == "unknown")
     }
 
     // MARK: - 向き
