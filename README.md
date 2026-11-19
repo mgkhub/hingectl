@@ -30,10 +30,13 @@ CLI と GUI。実機にも、起動中のシミュレータにも、同じ操作
 
 ```console
 $ hingectl set 120
+120.0
 $ hingectl sweep 180 90 2
+90.0
 $ hingectl get
 90.0
 $ hingectl rotate right
+landscape-left
 ```
 
 > ⚠️ **注意**: 非公開 API を使っています。Xcode / OS の更新で動かなくなる可能性があり、App Store 向けのツールではありません。
@@ -47,7 +50,7 @@ $ hingectl rotate right
 | 🖥️ **実機とシミュレータ** | 同じコマンド、同じ実装。`list` で並べて、UDID で選びます |
 | 🪟 **GUI アプリ** | SwiftUI の 1 ウィンドウ。CLI と同じ機能と規則 |
 | 🧩 **Xcode と同じ土台** | Device Hub と同じ `CoreDevice.framework` を直接呼びます |
-| 🤖 **スクリプト向き** | `--json` 出力、明確な終了コード、`stdout` と `stderr` の分離 |
+| 🤖 **スクリプト向き** | `--json` 出力、明確な終了コード、`stdout`(データ)と `stderr`(ログ・警告・プロンプト)の完全分離 |
 
 引数の解釈は、[swift-argument-parser](https://github.com/apple/swift-argument-parser) の標準的な文法(`hingectl <subcommand> [arguments] [options]`)です。
 ヘルプとエラーを含む、ユーザー向けのメッセージは英語です。
@@ -72,7 +75,7 @@ make run-app                # ビルドして起動(要 mint)
 
 - Xcode 27.1(CoreDevice 651.13.5)。ビルドは Xcode 27.0 でも成功し、シミュレータで 27.1 と同じ結果になることを確認しています
 - 実機: iPhone Duo(iOS 27.1)、USB またはネットワークで接続済み(connected)
-- シミュレータ: iPhone Duo(起動中。`devicectl list devices` が `connected` として返すもの)
+- シミュレータ: iPhone Duo(起動中。CoreDevice が `connected` として認識するもの)
 
 ## インストール
 
@@ -130,16 +133,16 @@ hingectl <subcommand> [arguments] [options]
 
 | サブコマンド | 引数 | 説明 | オプション |
 | --- | --- | --- | --- |
-| `set` | `<degrees>` | ヒンジ角を設定(0 = 閉じる 〜 180 = 平ら)。0〜180 の外はエラー(丸めない) | `-d` `-t` |
-| `open`(別名 `flat` `unfolded`) | なし | 180° にする | `-d` `-t` |
-| `close`(別名 `closed` `folded`) | なし | 0° にする | `-d` `-t` |
-| `half`(別名 `half-open`) | なし | 90° にする | `-d` `-t` |
-| `sweep` | `<from> <to> [seconds]` | 2 つの角度の間を動かす(秒数は 0〜3600、既定 1 秒。60Hz で連続送信) | `-d` `-t` |
+| `set` | `<degrees>` | ヒンジ角を設定(0 = 閉じる 〜 180 = 平ら)。実行後に**読み戻した角度**を表示。0〜180 の外はエラー(丸めない) | `-d` `-t` |
+| `open`(別名 `flat` `unfolded`) | なし | 180° にする(実行後に `180.0` を表示) | `-d` `-t` |
+| `close`(別名 `closed` `folded`) | なし | 0° にする(実行後に `0.0` を表示) | `-d` `-t` |
+| `half`(別名 `half-open`) | なし | 90° にする(実行後に `90.0` を表示) | `-d` `-t` |
+| `sweep` | `<from> <to> [seconds]` | 2 つの角度の間を動かす(秒数は 0〜3600、既定 1 秒。60Hz で連続送信。完了後に**終了角度**を表示) | `-d` `-t` |
 | `get` | なし | 現在のヒンジ角を表示(`--sensor` でセンサー計測角を表示) | `-d` `-j` `--sensor` |
-| `posture` | なし | 角度・向き・内蔵ディスプレイの状態を表示 | `-d` `-j` |
+| `posture` | なし | 角度・向き・内蔵ディスプレイの状態を表示。各ディスプレイの行の末尾の `(rotation: rot0/rot90/rot180/rot270)` は、そのディスプレイが、いま描いている向き。`orientation`(端末の向き)と違い、アプリがその向きを許さないと変わらない(例: iPhone で `portrait-upside-down` にしても、アプリが逆縦を許さなければ `rot0` / `rot270` のまま。ホーム画面は回転しないので `rot0`)。Duo の内側は、端末の向きが `portrait` でも `rot90`(UI は横長。実測) | `-d` `-j` |
 | `screenshot` | `<path>` | UI を載せているディスプレイの PNG を保存(`.png` のパス) | `-d` `-j` |
-| `rotate` | `<direction>` | 90° 回転(`left` / `right`、`l` / `r` も可。Device Hub の Rotate Left / Right と同じ順序) | `-d` `-t` |
-| `orient` | `<orientation>` | 向きを設定: `portrait` / `landscape-left` / `landscape-right` / `portrait-upside-down` | `-d` `-t` |
+| `rotate` | `<direction>` | 90° 回転(`left` / `right`、`l` / `r` も可。Device Hub の Rotate Left / Right と同じ順序。実行後に**読み戻した向き**を表示) | `-d` `-t` |
+| `orient` | `<orientation>` | 向きを設定: `portrait` / `landscape-left` / `landscape-right` / `portrait-upside-down`。実行後に**読み戻した向き**を表示する(`-t 0` で、反映が間に合わず指定と違うときは、警告する)。表示するのは、端末の向き。アプリが、その向きを許さないと(iPhone の逆縦など)、画面の向きは変わらないことがある(画面の実際の向きは、`posture` の各ディスプレイの `rotation` や `screenshot` で分かる) | `-d` `-t` |
 | `orientation` | なし | 現在の向きを表示 | `-d` `-j` |
 | `watch` | なし | ヒンジ角の変化を表示(Ctrl-C で終了)。`--count <N>` で、N 回で終了(`--sensor` でセンサー計測角を表示) | `-d` `-j` `--sensor` `--count` |
 | `list` | なし | 実機と、起動中のシミュレータを一覧表示。シミュレータの行には `[simulator]` が付き、`--json` には `reality`(`physical` / `simulated`)が出る | `-j` |
@@ -147,7 +150,7 @@ hingectl <subcommand> [arguments] [options]
 | オプション | 説明 |
 | --- | --- |
 | `-d, --device <device>` | 対象のデバイス(実機またはシミュレータ)。ハードウェア UDID・CoreDevice の識別子(大文字小文字を区別しない)・名前(完全一致、大文字小文字も区別)。省略時は `$HINGECTL_DEVICE`、なければ、接続中の**ヒンジ対応のデバイス**から選ぶ([デバイスの選び方](#デバイスの選び方))。ヒンジに対応していないデバイスも、明示すれば、ヒンジを使わないコマンドを実行できる |
-| `-t, --timeout <seconds>` | 角度・向きが反映されるのを待つ秒数(既定 2。0〜3600 の外はエラー)。`0` で確認せずに送るだけ。角度・向きを変えるサブコマンドにだけある |
+| `-t, --timeout <seconds>` | 角度・向きが反映されるのを待つ秒数(既定 2。0〜3600 の外はエラー)。指定秒数内に目標に達しない場合はエラー(終了コード 1)。`0` で確認せずに送るだけ(送信を流し切る待ちは入る。直後の読み戻し値が未反映または読めない場合は警告を出して終了コード 0)。角度・向きを変えるサブコマンドにだけある |
 | `-j, --json` | JSON で出力する。出力のあるサブコマンドにだけある(`set` などに付けると、不明なオプションとして拒否される)。角度には物理角(`mechanicalAngle`)とセンサー角(`sensorAngle`)が含まれる |
 | `--sensor` | 物理ヒンジ角(`mechanicalAngle`)ではなく、内蔵センサーが検出・推定した角度(`sensorAngle`)を出力する。`get` と `watch` にある |
 | `--count <N>` | 指定した回数だけ読み取りを出力して終了する(正の整数)。`watch` にある |
@@ -157,13 +160,13 @@ hingectl <subcommand> [arguments] [options]
 ### 例
 
 ```bash
-hingectl set 120                    # 120° に設定(2 秒以内に反映されなければエラー)
-hingectl open                       # 平らに開く
-hingectl sweep 180 90 2             # 2 秒かけて 180° から 90° へ
+hingectl set 120                    # 120° に設定(読み戻した角度 120.0 を表示。2 秒以内に反映されなければエラー)
+hingectl open                       # 平らに開く(180.0 を表示)
+hingectl sweep 180 90 2             # 2 秒かけて 180° から 90° へ(終了角度 90.0 を表示)
 hingectl get                        # 90.0
 hingectl get --json                 # {"mechanicalAngle":90,"sensorAngle":94.6}
-hingectl orient landscape-left      # 横向き
-hingectl rotate right               # 右へ 90° 回転
+hingectl orient landscape-left      # 横向き(読み戻した向き `landscape-left` を表示)
+hingectl rotate right               # 右へ 90° 回転(読み戻した向きを表示)
 hingectl posture                    # 角度・向き・ディスプレイ
 hingectl screenshot shot.png        # UI を載せているディスプレイを保存
 hingectl posture --device 00008160-000A1B2C3D4E5F60 --json
@@ -179,6 +182,28 @@ HINGECTL_DEVICE=Duo hingectl get    # 環境変数で対象を指定
 | `1` | 実行時のエラー(該当する実機が無い、接続されていない、送信に失敗した など) |
 
 エラーは、標準エラーに `Error: <message>` と出ます。
+
+### 標準出力と標準エラー出力
+
+UNIX の規約に沿って、出力ストリームを厳格に分離しています。
+
+- **標準出力 (`stdout`)**: コマンドの主たるデータのみを出力します。パイプやリダイレクトで安全に後続処理へ渡せます。
+  - `--json` 指定時: 純粋な JSON 文字列のみを出力します(`hingectl posture --json | jq .` など)。
+  - 通常テキスト出力時: 角度数値(`90.0`)、向き名(`portrait`)、ポスチャ行、デバイス一覧などの結果テキストを出力します。
+  - 状態変更コマンド(`set`, `open`, `close`, `half`, `sweep`, `orient`, `rotate`): 実行後に読み戻した角度や向きを出力します。
+- **標準エラー出力 (`stderr`)**: ログ、通知、プロンプト、警告、エラーメッセージを出力します。標準出力のデータを汚しません。
+  - 対象デバイスの自動選択通知: `hingectl: using iPhone Duo...`
+  - デバイス接続中通知: `hingectl: connecting to ...`
+  - 複数デバイス検出時の対話選択プロンプト(端末実行時のみ)
+  - 各種警告(`hingectl: warning: ...`)およびエラー(`Error: ...`)
+
+```bash
+# JSON だけをファイルに保存し、通知ログは標準エラーに流す
+hingectl posture --json > posture.json
+
+# パイプで jq に直接流す (通知は端末に表示され、jq には JSON のみが渡る)
+hingectl posture --json | jq .orientation
+```
 
 負の数(`set -5`)は、オプションと見なされ、`Missing expected argument '<degrees>'` になります(`set -- -5` なら、範囲外のエラー)。
 どちらも有効な角度ではないため、特別な処理は入れていません。数値の表記は、ArgumentParser(`Double`)に従います(`1e2` なども受けます)。
@@ -205,7 +230,7 @@ hingectl sweep 0 180 3 -d <UDID>                     # シミュレータでも�
 
 | 対応するデバイスの数 | 動作 |
 | --- | --- |
-| 1 台(実機 1 台、またはシミュレータ 1 台) | それを対象にする |
+| 1 台(実機 1 台、またはシミュレータ 1 台) | それを対象にし、**どのデバイスかを標準エラーに 1 行表示する**(`hingectl: using iPhone Duo (physical device) <UDID>, the only connected device that supports the hinge; …`)。意図しない実機へ黙って送らないため。`-d` や `$HINGECTL_DEVICE` を指定したとき、対話で選んだときは、表示しない |
 | 2 台以上(実機とシミュレータの混在、同種が複数、など) | **端末なら、番号を選ばせる**(標準エラーに候補を表示し、標準入力から読む。`q` で中止)。端末でない(パイプ・スクリプトなど)場合は、入力待ちで止まらず、候補を示して終了コード 1 のエラー |
 | 0 台 | 切断中のデバイスを起こして調べ直す(下の「接続状態と、切断中のデバイス」)。それでも 0 台なら、エラー(接続中のデバイスを示す。ヒンジ非対応のデバイスで `screenshot` などヒンジ不要のコマンドを実行する場合も、`-d` による明示的な指定が必要) |
 
@@ -225,7 +250,7 @@ Select a device [1-2] (q to cancel): 2
 
 <br>
 
-実機は、USB でつないでいても、しばらく使わないと、接続(トンネル)が切れます。`list` の状態は、`devicectl` の `tunnelState` です。
+実機は、USB でつないでいても、しばらく使わないと、接続(トンネル)が切れます。`list` の状態は、CoreDevice の接続状態です。
 
 | 状態 | 意味 | hingectl の扱い |
 | --- | --- | --- |
@@ -234,11 +259,11 @@ Select a device [1-2] (q to cancel): 2
 | `unavailable` | 経路が無い(ケーブルが抜けている、圏外など) | 起こさない。`-d` で指定すると `is not reachable` のエラー |
 
 - **起こす条件**: `-d`(または `$HINGECTL_DEVICE`)で指定したデバイスが、経路のある切断中のものなら、常に起こします(経路が無い `unavailable` などは、起こさず、すぐエラーになります)。`-d` を省略したときは、接続中に対応デバイスが 1 台も無い場合に限り、経路のある切断中のデバイスを起こして、調べ直します(接続中の対応デバイスがあれば、切断中のものには触れません)。`list` は起こしません(状態をそのまま表示します)。
-- **`-d` 省略時に起こす順序**: ヒンジ対応の**見込みがある**デバイスを、先に起こします。見込みは、`devicectl list devices` の `capabilities` に、向きの遠隔操作(`remote.devicecontrol.orientation`)があるかで決めます。切断中の一覧には、ヒンジ用の機能(`monitormotion` など)は載らず、この機能だけが載ります(実測: 切断中の一覧で、iPhone Duo にだけあり、経路のある iPad mini・iPad 10th・iPhone 15 Pro・iPhone SE には無し。iPhone SE も、接続中の一覧には、この機能と `monitormotion` などが載ります)。**デバイスの名前や機種名は使いません**。そこで対応デバイスが見つかれば、他の切断中のデバイスは起こしません。見つからなければ、残りも起こします。
+- **`-d` 省略時に起こす順序**: ヒンジ対応の**見込みがある**デバイスを、先に起こします。見込みは、CoreDevice の機能判定で向きの遠隔操作(`remote.devicecontrol.orientation`)があるかで決めます。切断中の一覧には、ヒンジ用の機能(`monitormotion` など)は載らず、この機能だけが載ります(実測: 切断中の一覧で、iPhone Duo にだけあり、経路のある iPad mini・iPad 10th・iPhone 15 Pro・iPhone SE には無し。iPhone SE も、接続中の一覧には、この機能と `monitormotion` などが載ります)。**デバイスの名前や機種名は使いません**。そこで対応デバイスが見つかれば、他の切断中のデバイスは起こしません。見つからなければ、残りも起こします。
   - これは起こす**順序**の手がかりで、判定ではありません。切断中の一覧に載る条件は分かっておらず、ヒンジ対応でも載らないデバイスや、ヒンジの無いデバイスで載るものがありえます(前者は 2 段目で見つかり、後者は、起こしたあとの判定で除かれます)。対応しているかの判定は、起こした(接続した)あとの問い合わせだけで行います。
-- **起こし方**: `devicectl device info details` を、上限 10 秒(`--timeout 10`)で呼びます。起こす前に、標準エラーに `connecting to <name>...` と出ます。つながらなければ、`could not connect to <name>` の警告を出し、そのデバイスは候補に含めません(`-d` で指定していれば、`is not connected` のエラー)。
-- **なぜ起こすのか**: CoreDevice の API(ヒンジ角・向き)は、自分では接続を張りません。しかも、切断中は、ヒンジ対応のデバイスにも「非対応」(`errorCode: 1001`)と返します。
-  接続を確かめずに呼ぶと、対応デバイスを「ヒンジ非対応」と誤って断定するため、`devicectl`(必要なときに自分で接続を張る)で、先に接続を起こします。
+- **起こし方**: CoreDevice のプロセス内 API で接続を確立します(上限 10 秒)。起こす前に、標準エラーに `connecting to <name>...` と出ます。つながらなければ、`could not connect to <name>` の警告を出し、そのデバイスは候補に含めません(`-d` で指定していれば、`is not connected` のエラー)。
+- **なぜ起こすのか**: CoreDevice の API(ヒンジ角・向き)は、切断中はヒンジ対応のデバイスにも「非対応」(`errorCode: 1001`)と返します。
+  接続を確かめずに呼ぶと、対応デバイスを「ヒンジ非対応」と誤って断定するため、先に接続を確立して起こします。
 - 起こしたあと、実行中に再び切れた場合(長い `watch` など)の再接続は行いません。
 
 </details>

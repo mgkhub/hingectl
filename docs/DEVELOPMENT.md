@@ -19,7 +19,7 @@
 ## Xcode の選ばれ方
 
 - **ビルド(`make build`)には、Xcode 27.0 以降(Swift 6.4)が必要です。** それ以前の Xcode では CoreDevice のモジュールをビルドできず失敗します(Xcode 27.0 および 27.1 で動作確認済み)。
-- **実行には、特定の Xcode は要りません。** `hingectl` はシステム共通の `/Library/Developer/PrivateFrameworks/CoreDevice.framework` から動的にリンクします。`xcrun devicectl` は環境変数 `DEVELOPER_DIR` または `xcode-select` で選ばれた Xcode のものが使われます。
+- **実行には、特定の Xcode は要りません。** `hingectl` はシステム共通の `/Library/Developer/PrivateFrameworks/CoreDevice.framework` から動的にリンクします。
 - `make test` は CoreDevice に依存しないため、Xcode 27.0 以降でなくても(選択中の Xcode で)通ります。
 
 `make build` が使う Xcode は、`Scripts/with-xcode.sh` が次の優先順位で決めます(`xcode-select` の選択やインストール済みの Xcode は変更しません)。
@@ -53,8 +53,7 @@ SwiftPM のパッケージが 4 つあります(ルートと、`Packages/` の 3
     Package.swift                # 非公開フレームワークの設定(-I / -F / リンク)は、ここにある
     Sources/HingeCtlDevice/
       HingeDevice.swift          # 公開 API: HingeDevice(読み取り・設定・sweep・向き・posture・screenshot・連続送信)
-      DeviceAccess.swift         # CoreDevice: デバイスの取得、ヒンジ角の読み書き、向きの制御
-      Devicectl.swift            # devicectl の実行、実機の一覧、ディスプレイ情報、切断中の端末を起こす処理(wakeDevices)
+      DeviceAccess.swift         # CoreDevice: デバイス一覧・接続確立・ヒンジ角の読み書き・向き制御・ディスプレイ取得・スクリーンショット
       Log.swift                  # HingeLog: 状況・警告の出力先(既定は標準エラー。GUI は差し替える)
   HingeCtlApp/                   # GUI アプリ(SwiftUI)
     project.yml                  # Xcode プロジェクトの定義(XcodeGen)。Packages/ の 3 つのソースを、静的ライブラリのターゲットとして取り込む
@@ -86,7 +85,7 @@ SwiftPM のパッケージが 4 つあります(ルートと、`Packages/` の 3
       Posture.swift              # posture の読み取り結果(PostureSnapshot)
       Orientation.swift          # 向きの名前(OrientationName)、rotate の順序、posture の向きの欄(OrientationField)
       Sweep.swift                # sweep の送信計画(ステップ数・各角度・各時刻)
-      DevicectlModels.swift      # devicectl の JSON を読む Decodable の DTO(内部用。寛容なデコード)
+      CoreDeviceModels.swift     # CoreDevice の JSON を読む Decodable の DTO(内部用。寛容なデコード)
       Devices.swift              # 実機の一覧のデコード、-d による選択、対話式の問い合わせ、起こす順序と理由の判定
       Hinge.swift                # ヒンジへの対応の判定(HingeSupport)、HingeReading、firstElement、posture の角度
       Displays.swift             # ディスプレイのデコード、posture の表示
@@ -134,20 +133,34 @@ Swift モジュール情報を持ちません。そこで次の方法で直接�
 | 機能 | 使っている API |
 | --- | --- |
 | 引数の解釈 | swift-argument-parser(`HingeCtlCore/Commands.swift`) |
-| デバイスの一覧・UDID・名前 | `devicectl list devices`(JSON。実機と、起動中のシミュレータ) |
+| デバイスの一覧・UDID・名前 | CoreDevice: `DeviceManager.shared.allDevices()`(実機)および `sharedSimulatorManager()`(シミュレータ)の `deviceInfo` |
 | シミュレータの RemoteDevice | CoreDevice: `DeviceManager(serviceConnection:allowedDeviceVisibilityClasses:)` に `.simulators` を許可して作る(既定の `DeviceManager.shared` は、シミュレータを返さない) |
+| 切断端末の接続確立 | CoreDevice: `RemoteDevice.connect()` / `disconnect()` |
 | ヒンジ角の読み取り | CoreDevice: `.monitorMotion` → `DeviceMotionManager.monitorHingeAngle(config:)` |
 | ヒンジ角の設定 | CoreDevice: `.hid.vendorDefined` → `HIDVendorDefined.send(usagePage:usage:version:data:)` |
 | 向き | CoreDevice: `.orientationControl` → `OrientationControl` |
-| ディスプレイの状態 | `devicectl device info displays`(JSON) |
-| スクリーンショット | `devicectl device capture screenshot` |
+| ディスプレイの状態 | CoreDevice: `RemoteDevice.displayInfo` |
+| スクリーンショット | CoreDevice: `.captureScreenshot` → `CaptureScreenshotProtocol.takeScreenshot(displayUniqueID:format:)` |
 
 ## JSON の扱い
 
 JSON は、`JSONSerialization` と `[String: Any]` ではなく、`Decodable` / `Encodable` の構造体で扱います(キー名と型をコンパイルで保証)。
 
-- **読む側**(`devicectl list devices` / `device info displays`): `DevicectlModels.swift` の DTO で読み、ドメインの型(`DeviceEntry` / `DisplayState`)に変換します。未知のキーの無視や欠損値の既定値補完など、寛容にデコードします(`Lossy`)。
+- **読む側**(`RemoteDevice.deviceInfo` / `displayInfo`): `CoreDeviceModels.swift` の DTO で読み、ドメインの型(`DeviceEntry` / `DisplayState`)に変換します。未知のキーの無視や欠損値の既定値補完など、寛容にデコードします(`Lossy`)。
 - **出力側**(`--json`): `JSONOutput.swift` の `Encodable` で、1 行・キー辞書順に出力します。値が無い項目は `null` として明示的に出力します(`encodeNil`)。
+
+## 出力ストリームの分離 (stdout と stderr)
+
+CLI ツールの標準的な振る舞いとして、パイプライン連携を阻害しないよう出力先を厳格に分離しています。
+
+- **`stdout` (標準出力)**:
+  - データの唯一の出力先です。
+  - `--json` 指定時は純粋な JSON 文字列のみを出力し、テキスト指定時は数値・状態文字列のみを出力します。
+  - `set` / `sweep` / `orient` / `rotate` などの状態変更コマンドも、変更完了後の値を標準出力に出力します。
+- **`stderr` (標準エラー出力)**:
+  - 診断メッセージ、ログ、プロンプト、警告、エラーの出力先です。
+  - デバイス自動選択通知(`implicitSelectionNote`)、接続中通知(`wakeDevices`)、対話選択プロンプト(`chooseInteractively`)、各種警告(`HingeLog.warn`)、エラー(`CLIError` / ArgumentParser エラー)が該当します。
+  - `HingeLog.sink` は既定で標準エラー(`FileHandle.standardError`)に書き込み、GUI アプリ側ではアプリ内のログ欄(`AppLog`)に差し替えられます。
 
 ## GUI の開発
 
@@ -155,7 +168,7 @@ JSON は、`JSONSerialization` と `[String: Any]` ではなく、`Decodable` / 
   `.appiconset` では、macOS 向けのダーク用の画像が無視されるため、この形式にしています。絵の元は `HingeCtlApp/Icon/AppIcon.template.svg` だけです。
   変えたときは `Scripts/render-icon.sh` を実行して、`AppIcon-{light,dark}.svg`(README のロゴ)・`AppIcon.icon/icon.json`・
   `AppIcon.icon/Assets/device.png` を、まとめて作り直します(生成物も、コミットします)。ライト/ダークの背景色は、このスクリプトだけが持っています。
-- App Sandbox は有効にしていません(非公開 API の直接呼び出しや `xcrun devicectl` プロセス起動のため)。署名は ad-hoc で、配布は想定していません。
+- App Sandbox は有効にしていません(非公開 API の直接呼び出しのため)。署名は ad-hoc で、配布は想定していません。
 - Xcode プロジェクト(`HingeCtlApp/HingeCtlApp.xcodeproj`)は、`HingeCtlApp/project.yml` から、[XcodeGen](https://github.com/yonaskolb/XcodeGen) で生成します
   (生成物はコミットしていません。`make app` が、毎回生成します)。XcodeGen の版は、ルートの `Mintfile` で固定しており、[mint](https://github.com/yonaskolb/Mint)
   (`brew install mint`)が要ります。Xcode で開くには、先に `make generate-xcodeproj` を実行してください。
