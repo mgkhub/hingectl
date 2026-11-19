@@ -21,6 +21,10 @@ public struct AngleOutput: Encodable, Equatable {
         self.mechanicalAngle = mechanicalAngle
         self.sensorAngle = sensorAngle
     }
+
+    public init(_ reading: HingeReading) {
+        self.init(mechanicalAngle: reading.mechanicalAngle, sensorAngle: reading.sensorAngle)
+    }
 }
 
 /// `orientation --json`
@@ -37,6 +41,14 @@ public struct ScreenshotOutput: Encodable, Equatable, Sendable {
         self.display = display
         self.path = path
     }
+}
+
+/// `screenshot` のプレーンテキスト出力
+public func screenshotLines(_ shot: ScreenshotOutput) -> [String] {
+    [
+        "display: \(shot.display)",
+        "path: \(shot.path)",
+    ]
 }
 
 /// `posture --json` の 1 つのディスプレイ
@@ -102,6 +114,12 @@ public struct PostureOutput: Encodable, Equatable {
         self.orientation = orientation
         activeDisplay = active.map { displays[$0].name }
         self.displays = displays.map(DisplayOutput.init)
+    }
+
+    public init(device: DeviceEntry, posture: PostureSnapshot) {
+        self.init(udid: device.udid, name: device.name, mechanicalAngle: posture.mechanicalAngle,
+                  sensorAngle: posture.sensorAngle, orientation: posture.orientation,
+                  displays: posture.displays, active: posture.active)
     }
 
     private enum CodingKeys: String, CodingKey { case device, mechanicalAngle, sensorAngle, orientation, activeDisplay, displays }

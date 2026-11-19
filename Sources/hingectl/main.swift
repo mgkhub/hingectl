@@ -8,7 +8,7 @@ import HingeCtlDevice
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
-func printJSON<Value: Encodable>(_ value: Value) {
+private func printJSON<Value: Encodable>(_ value: Value) {
     if let text = encodeJSON(value) { print(text) }
 }
 
@@ -21,32 +21,71 @@ private func chooseInteractively(_ candidates: [DeviceEntry]) throws -> DeviceEn
                         output: { FileHandle.standardError.write(Data($0.utf8)) })
 }
 
-// MARK: - 各コマンド
+// MARK: - 各コマンドのハンドラ
 
-func printPosture(_ device: HingeDevice, json: Bool) async throws {
-    let posture = try await device.posture()
-    let entry = device.entry
+private func handleList(json: Bool) throws {
+    let devices = try listDevices()
     if json {
-        printJSON(PostureOutput(udid: entry.udid, name: entry.name, mechanicalAngle: posture.mechanicalAngle,
-                                sensorAngle: posture.sensorAngle,
-                                orientation: posture.orientation, displays: posture.displays, active: posture.active))
+        printJSON(devices)
     } else {
-        postureLines(udid: entry.udid, name: entry.name, mechanicalAngle: posture.mechanicalAngle, sensorAngle: posture.sensorAngle,
-                     orientation: posture.orientation, displays: posture.displays).forEach { print($0) }
+        devices.forEach { print(listLine($0)) }
     }
 }
 
-func takeScreenshot(_ device: HingeDevice, path: String, json: Bool) async throws {
+private func handleSetAngle(_ device: HingeDevice, degrees: Double, timeout: Double) async throws {
+    print(angleText(try await device.setAngle(degrees, timeout: timeout)))
+}
+
+private func handleSweep(_ device: HingeDevice, plan: SweepPlan, timeout: Double) async throws {
+    print(angleText(try await device.sweep(from: plan.from, to: plan.to, seconds: plan.seconds, timeout: timeout)))
+}
+
+private func handleGet(_ device: HingeDevice, sensor: Bool, json: Bool) async throws {
+    let reading = try await device.readAngle()
+    let value = sensor ? reading.sensorAngle : reading.mechanicalAngle
+    if json {
+        printJSON(AngleOutput(reading))
+    } else {
+        print(angleText(value))
+    }
+}
+
+private func handlePosture(_ device: HingeDevice, json: Bool) async throws {
+    let posture = try await device.posture()
+    if json {
+        printJSON(PostureOutput(device: device.entry, posture: posture))
+    } else {
+        postureLines(device: device.entry, posture: posture).forEach { print($0) }
+    }
+}
+
+private func handleScreenshot(_ device: HingeDevice, path: String, json: Bool) async throws {
     let shot = try await device.screenshot(to: path)
     if json {
         printJSON(shot)
     } else {
-        print("display: \(shot.display)")
-        print("path: \(shot.path)")
+        screenshotLines(shot).forEach { print($0) }
     }
 }
 
-func runWatch(_ device: HingeDevice, sensor: Bool, count: Int?, json: Bool) async throws {
+private func handleRotate(_ device: HingeDevice, direction: RotationDirection, timeout: Double) async throws {
+    print(orientationText(try await device.rotate(direction, timeout: timeout)))
+}
+
+private func handleOrient(_ device: HingeDevice, name: OrientationName, timeout: Double) async throws {
+    print(orientationText(try await device.setOrientation(name, timeout: timeout)))
+}
+
+private func handleOrientation(_ device: HingeDevice, json: Bool) async throws {
+    let orientation = try await device.orientation()
+    if json {
+        printJSON(OrientationOutput(orientation: orientation))
+    } else {
+        print(orientationText(orientation))
+    }
+}
+
+private func handleWatch(_ device: HingeDevice, sensor: Bool, count: Int?, json: Bool) async throws {
     let readings = try await device.readings()
     var seen = 0
     for try await batch in readings {
@@ -62,12 +101,7 @@ func runWatch(_ device: HingeDevice, sensor: Bool, count: Int?, json: Bool) asyn
 func execute(_ request: Request) async throws {
     // デバイスを選ばないコマンド
     if request.command == .list {
-        let devices = try listDevices()
-        if request.json {
-            printJSON(devices)
-        } else {
-            devices.forEach { print(listLine($0)) }
-        }
+        try handleList(json: request.json)
         return
     }
 
@@ -80,29 +114,23 @@ func execute(_ request: Request) async throws {
     case .list:
         break
     case .setAngle(let degrees):
-        print(angleText(try await device.setAngle(degrees, timeout: timeout)))
+        try await handleSetAngle(device, degrees: degrees, timeout: timeout)
     case .sweep(let plan):
-        print(angleText(try await device.sweep(from: plan.from, to: plan.to, seconds: plan.seconds, timeout: timeout)))
+        try await handleSweep(device, plan: plan, timeout: timeout)
     case .get(let sensor):
-        let reading = try await device.readAngle()
-        let value = sensor ? reading.sensorAngle : reading.mechanicalAngle
-        request.json
-            ? printJSON(AngleOutput(mechanicalAngle: reading.mechanicalAngle, sensorAngle: reading.sensorAngle))
-            : print(angleText(value))
+        try await handleGet(device, sensor: sensor, json: request.json)
     case .posture:
-        try await printPosture(device, json: request.json)
+        try await handlePosture(device, json: request.json)
     case .screenshot(let path):
-        try await takeScreenshot(device, path: path, json: request.json)
+        try await handleScreenshot(device, path: path, json: request.json)
     case .rotate(let direction):
-        print(try await device.rotate(direction, timeout: timeout).rawValue)
+        try await handleRotate(device, direction: direction, timeout: timeout)
     case .orient(let name):
-        // 実行後に読み戻した向きを表示する(`rotate` と同じ)
-        print(orientationText(try await device.setOrientation(name, timeout: timeout)))
+        try await handleOrient(device, name: name, timeout: timeout)
     case .orientation:
-        let orientation = try await device.orientation()
-        request.json ? printJSON(OrientationOutput(orientation: orientation)) : print(orientationText(orientation))
+        try await handleOrientation(device, json: request.json)
     case .watch(let sensor, let count):
-        try await runWatch(device, sensor: sensor, count: count, json: request.json)
+        try await handleWatch(device, sensor: sensor, count: count, json: request.json)
     }
 }
 

@@ -46,7 +46,7 @@ public struct HingeDevice: @unchecked Sendable {
     /// 対応していなければ、何も送らずにエラーにする。
     public func requireHinge() async throws { try await HingeCtlDevice.requireHinge(remote, name: entry.name) }
 
-    public func readAngle(timeout: Double = 2) async throws -> HingeReading {
+    public func readAngle(timeout: Double = HingeLimits.defaultTimeout) async throws -> HingeReading {
         try await readHingeAngle(remote, timeout: timeout)
     }
 

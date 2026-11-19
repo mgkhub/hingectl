@@ -28,7 +28,7 @@ private func isUsageError(_ args: [String], containing fragment: String, sourceL
     return result.code == 64 && result.message.contains(fragment)
 }
 
-private func request(_ command: Command, device: String? = nil, timeout: Double = 2, json: Bool = false) -> Request {
+private func request(_ command: Command, device: String? = nil, timeout: Double = HingeLimits.defaultTimeout, json: Bool = false) -> Request {
     Request(command: command, device: device, timeout: timeout, json: json)
 }
 

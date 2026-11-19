@@ -164,7 +164,7 @@ struct DisplaysTests {
     // MARK: - posture の表示
 
     @Test func postureの表示() throws {
-        let (displays, _) = try decode(foldedOpen)
+        let (displays, active) = try decode(foldedOpen)
         let lines = postureLines(udid: "U-1", name: "Test Duo", mechanicalAngle: 180, orientation: .known(.portrait), displays: displays)
         #expect(lines == [
             "device: Test Duo (U-1)",
@@ -173,6 +173,10 @@ struct DisplaysTests {
             "display: LCD (primary) (backlight: off) (rotation: rot0)",
             "display: LCD-1 (active) (backlight: activeOn) (rotation: rot90)",
         ])
+
+        let entry = DeviceEntry(id: "1", name: "Test Duo", udid: "U-1", connectionState: "connected")
+        let snapshot = PostureSnapshot(mechanicalAngle: 180, sensorAngle: 180, orientation: .known(.portrait), displays: displays, active: active)
+        #expect(postureLines(device: entry, posture: snapshot) == lines)
     }
 
     @Test func 向きが読めないときの表示() throws {

@@ -20,6 +20,9 @@ struct JSONOutputTests {
         #expect(encodeJSON(AngleOutput(mechanicalAngle: 0, sensorAngle: 0)) == #"{"mechanicalAngle":0,"sensorAngle":0}"#)
         #expect(encodeJSON(AngleOutput(mechanicalAngle: 90.5, sensorAngle: 90.5)) == #"{"mechanicalAngle":90.5,"sensorAngle":90.5}"#)
         #expect(encodeJSON(AngleOutput(mechanicalAngle: 90, sensorAngle: 94.6)) == #"{"mechanicalAngle":90,"sensorAngle":94.6}"#)
+
+        let reading = HingeReading(mechanicalAngle: 180, sensorAngle: 180, isValid: true, minAngle: 0, maxAngle: 180, timestamp: 0)
+        #expect(AngleOutput(reading) == AngleOutput(mechanicalAngle: 180, sensorAngle: 180))
     }
 
     @Test func 小数は最短の表記になる() {
@@ -48,6 +51,14 @@ struct JSONOutputTests {
 
     @Test func 日本語と引用符() {
         #expect(encodeJSON(ScreenshotOutput(display: "背面", path: #"a"b"#)) == #"{"display":"背面","path":"a\"b"}"#)
+    }
+
+    @Test func スクリーンショットのテキスト出力() {
+        let shot = ScreenshotOutput(display: "LCD-1", path: "/tmp/test.png")
+        #expect(screenshotLines(shot) == [
+            "display: LCD-1",
+            "path: /tmp/test.png",
+        ])
     }
 
     @Test func watchはキー辞書順() {
@@ -121,5 +132,9 @@ struct JSONOutputTests {
         let (displays, active) = try decodeDisplays(stdout: response, stderr: "", label: "device info displays")
         let output = PostureOutput(udid: "U-1", name: "Test Duo", mechanicalAngle: 180, orientation: .known(.portrait), displays: displays, active: active)
         #expect(encodeJSON(output) == encodeJSON(PostureOutput(udid: "U-1", name: "Test Duo", mechanicalAngle: 180, orientation: .known(.portrait), displays: foldedOpen, active: 1)))
+
+        let entry = DeviceEntry(id: "1", name: "Test Duo", udid: "U-1", connectionState: "connected")
+        let snapshot = PostureSnapshot(mechanicalAngle: 180, orientation: .known(.portrait), displays: displays, active: active)
+        #expect(encodeJSON(PostureOutput(device: entry, posture: snapshot)) == encodeJSON(output))
     }
 }

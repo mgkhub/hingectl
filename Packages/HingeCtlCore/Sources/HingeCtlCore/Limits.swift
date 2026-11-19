@@ -7,6 +7,12 @@ public enum HingeLimits {
     /// メッセージなしにクラッシュする(単体の Swift で確認: `Duration.seconds(1e300)` が trap する)。
     public static let timeout: ClosedRange<Double> = 0...3600
 
+    /// 確認の待ち秒数の既定値
+    public static let defaultTimeout: Double = 2
+
     /// `sweep` の秒数。`timeout` と同じ理由で、`SweepPlan.steps` の整数変換が範囲外になるのを防ぐ(実機で確認)。
     public static let sweepSeconds: ClosedRange<Double> = 0...3600
+
+    /// `sweep` の秒数の既定値
+    public static let defaultSweepSeconds: Double = 1
 }

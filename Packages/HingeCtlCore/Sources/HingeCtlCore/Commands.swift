@@ -44,6 +44,18 @@ public struct Request: Equatable {
     /// 角度・向きが反映されるのを待つ秒数。0 なら確認しない。`-t` を持たないコマンドでは使われない
     public var timeout: Double
     public var json: Bool
+
+    public init(
+        command: Command,
+        device: String? = nil,
+        timeout: Double = HingeLimits.defaultTimeout,
+        json: Bool = false
+    ) {
+        self.command = command
+        self.device = device
+        self.timeout = timeout
+        self.json = json
+    }
 }
 
 /// 解釈後に `Request` を作れるサブコマンド。実行は `runHingeCtl` が、`run()` の代わりに executable へ渡して行う。
@@ -75,7 +87,7 @@ public struct TimeoutOptions: ParsableArguments {
     @Option(name: [.short, .long], help: ArgumentHelp(
         "Seconds to wait for the change to take effect (0 to 3600). 0 sends without confirming.",
         valueName: "seconds"))
-    var timeout: Double = 2
+    var timeout: Double = HingeLimits.defaultTimeout
 
     public init() {}
 
@@ -140,7 +152,7 @@ public struct SetCommand: HingeSubcommand {
     public func validate() throws { try validateAngle(degrees, name: "Angle (degrees)") }
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .setAngle(degrees), device: target.resolved(environment), timeout: wait.timeout, json: false)
+        Request(command: .setAngle(degrees), device: target.resolved(environment), timeout: wait.timeout)
     }
 }
 
@@ -154,7 +166,7 @@ public struct OpenCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .setAngle(180), device: target.resolved(environment), timeout: wait.timeout, json: false)
+        Request(command: .setAngle(180), device: target.resolved(environment), timeout: wait.timeout)
     }
 }
 
@@ -168,7 +180,7 @@ public struct CloseCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .setAngle(0), device: target.resolved(environment), timeout: wait.timeout, json: false)
+        Request(command: .setAngle(0), device: target.resolved(environment), timeout: wait.timeout)
     }
 }
 
@@ -182,7 +194,7 @@ public struct HalfCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .setAngle(90), device: target.resolved(environment), timeout: wait.timeout, json: false)
+        Request(command: .setAngle(90), device: target.resolved(environment), timeout: wait.timeout)
     }
 }
 
@@ -195,7 +207,7 @@ public struct SweepCommand: HingeSubcommand {
     @Argument(help: ArgumentHelp("End angle in degrees (0 to 180).", valueName: "to"))
     var to: Double
     @Argument(help: ArgumentHelp("Duration in seconds (0 to 3600).", valueName: "seconds"))
-    var seconds: Double = 1
+    var seconds: Double = HingeLimits.defaultSweepSeconds
     @OptionGroup var target: DeviceOptions
     @OptionGroup var wait: TimeoutOptions
 
@@ -211,7 +223,7 @@ public struct SweepCommand: HingeSubcommand {
 
     public func request(environment: [String: String]) -> Request {
         Request(command: .sweep(SweepPlan(from: from, to: to, seconds: seconds)),
-                device: target.resolved(environment), timeout: wait.timeout, json: false)
+                device: target.resolved(environment), timeout: wait.timeout)
     }
 }
 
@@ -229,7 +241,7 @@ public struct RotateCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .rotate(direction), device: target.resolved(environment), timeout: wait.timeout, json: false)
+        Request(command: .rotate(direction), device: target.resolved(environment), timeout: wait.timeout)
     }
 }
 
@@ -244,7 +256,7 @@ public struct OrientCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .orient(orientation), device: target.resolved(environment), timeout: wait.timeout, json: false)
+        Request(command: .orient(orientation), device: target.resolved(environment), timeout: wait.timeout)
     }
 }
 
@@ -261,7 +273,7 @@ public struct GetCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .get(sensor: sensor), device: target.resolved(environment), timeout: 2, json: output.json)
+        Request(command: .get(sensor: sensor), device: target.resolved(environment), json: output.json)
     }
 }
 
@@ -275,7 +287,7 @@ public struct PostureCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .posture, device: target.resolved(environment), timeout: 2, json: output.json)
+        Request(command: .posture, device: target.resolved(environment), json: output.json)
     }
 }
 
@@ -289,7 +301,7 @@ public struct OrientationCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .orientation, device: target.resolved(environment), timeout: 2, json: output.json)
+        Request(command: .orientation, device: target.resolved(environment), json: output.json)
     }
 }
 
@@ -311,7 +323,7 @@ public struct ScreenshotCommand: HingeSubcommand {
     }
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .screenshot(path: path), device: target.resolved(environment), timeout: 2, json: output.json)
+        Request(command: .screenshot(path: path), device: target.resolved(environment), json: output.json)
     }
 }
 
@@ -333,7 +345,7 @@ public struct WatchCommand: HingeSubcommand {
     }
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .watch(sensor: sensor, count: count), device: target.resolved(environment), timeout: 2, json: output.json)
+        Request(command: .watch(sensor: sensor, count: count), device: target.resolved(environment), json: output.json)
     }
 }
 
@@ -346,6 +358,6 @@ public struct ListCommand: HingeSubcommand {
     public init() {}
 
     public func request(environment: [String: String]) -> Request {
-        Request(command: .list, device: nil, timeout: 2, json: output.json)
+        Request(command: .list, json: output.json)
     }
 }

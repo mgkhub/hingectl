@@ -129,3 +129,8 @@ public func postureLines(
     }
     return lines
 }
+
+public func postureLines(device: DeviceEntry, posture: PostureSnapshot) -> [String] {
+    postureLines(udid: device.udid, name: device.name, mechanicalAngle: posture.mechanicalAngle,
+                 sensorAngle: posture.sensorAngle, orientation: posture.orientation, displays: posture.displays)
+}
