@@ -26,15 +26,12 @@ private func sharedSimulatorManager() -> DeviceManager {
 
 /// 実機は、`DeviceManager.shared` から引く。シミュレータ(visibilityClass が simulators)は、既定の
 /// `shared` が許可していないため、シミュレータも許可した `DeviceManager` を、必要になったときだけ作って引く。
-/// 作った直後の `allDevices()` は空で、デバイスの登録が非同期に届く(実測で約 0.05〜0.1 秒)ため、目的の ID が現れるまで待つ。
+/// 作った直後の `allDevices()` は空で、デバイスの登録が非同期に届くため、初期チェックイン完了を待つ。
 final class RemoteDirectory {
     private var physical = RemoteDirectory.snapshotPhysical()
     private var simulators: [UUID: RemoteDevice]?
-    private let simulatorIDs: Set<UUID>
 
-    init(entries: [DeviceEntry]) {
-        simulatorIDs = Set(entries.filter(\.isSimulator).compactMap { UUID(uuidString: $0.id) })
-    }
+    init(entries: [DeviceEntry]) {}
 
     private static func snapshotPhysical() -> [UUID: RemoteDevice] {
         Dictionary(DeviceManager.shared.allDevices().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -50,24 +47,13 @@ final class RemoteDirectory {
         return simulators?[uuid]
     }
 
-    /// 起動中のシミュレータがすべて現れるまで待つ。上限は 5 秒。一部が現れなくても(CoreDevice が隠すシミュレータ)、
-    /// 件数が 0.5 秒変わらなければ、登録が落ち着いたとみなして待ちを打ち切る。
+    /// シミュレータ用 `DeviceManager` の初期チェックイン完了を待ってから全デバイスを辞書化する。
     private func loadSimulators() async -> [UUID: RemoteDevice] {
         let manager = sharedSimulatorManager()
-        let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(5)
-        var lastChange = clock.now
-        var lastCount = 0
-        var found: [UUID: RemoteDevice] = [:]
-        while clock.now < deadline {
-            let all = manager.allDevices()
-            found = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            if simulatorIDs.isSubset(of: found.keys) { break }
-            if all.count != lastCount { lastCount = all.count; lastChange = clock.now }
-            if lastCount > 0 && clock.now - lastChange >= .milliseconds(500) { break }
-            try? await Task.sleep(for: .milliseconds(50))
+        if !manager.fullyInitialized {
+            await manager.awaitFullInitialization()
         }
-        return found
+        return Dictionary(manager.allDevices().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 }
 
@@ -684,22 +670,21 @@ private func warmedUpSimulatorDevices() -> [RemoteDevice] {
     let manager = sharedSimulatorManager()
     simulatorWarmupLock.lock()
     defer { simulatorWarmupLock.unlock() }
-    if simulatorWarmedUp {
+    if simulatorWarmedUp || manager.fullyInitialized {
+        simulatorWarmedUp = true
         return manager.allDevices()
     }
 
-    // 初回のみ最大 100ms (20ms 間隔) でシミュレータの非同期登録を待つ。
-    // シミュレータが 1 台でも現れれば即座に抜け、0 台環境でも無駄に待たせない。
-    var devices = manager.allDevices()
-    let clock = ContinuousClock()
-    let deadline = clock.now + .milliseconds(100)
-    while devices.isEmpty && clock.now < deadline {
-        Thread.sleep(forTimeInterval: 0.02)
-        devices = manager.allDevices()
+    // CoreDevice の初期チェックイン完了通知をイベント駆動で待つ(既に完了済みでもハンドラは即呼ばれる)。
+    // 応答が無い異常系への安全弁として上限 5 秒のタイムアウトを置く。
+    let semaphore = DispatchSemaphore(value: 0)
+    manager.addFullyInitializedHandler(on: nil) {
+        semaphore.signal()
     }
+    _ = semaphore.wait(timeout: .now() + .seconds(5))
 
     simulatorWarmedUp = true
-    return devices
+    return manager.allDevices()
 }
 
 func listDevicesInProcess() throws -> [DeviceEntry] {

@@ -7,6 +7,7 @@
 // 実際の定義と合っていないとクラッシュする。Xcode / OS の更新で変わりうるため、更新後は動作を再確認すること。
 import CoreDeviceProtocols
 import CoreDeviceUtilities
+import Dispatch
 import Foundation
 import Swift
 public struct CoreDeviceError : Swift.Error {
@@ -122,10 +123,13 @@ public enum DeviceVisibilityClass : Swift.String, Swift.Hashable {
   public init?(rawValue: Swift.String)
   public var rawValue: Swift.String { get }
 }
-public final class DeviceManager {
+public class DeviceManager {
   public static var shared: CoreDevice.DeviceManager { get }
   public init(serviceConnection: any CoreDevice.CoreDeviceServiceConnection, allowedDeviceVisibilityClasses: Swift.Set<CoreDevice.DeviceVisibilityClass>)
-  public func allDevices() -> [CoreDevice.RemoteDevice]
+  public var fullyInitialized: Swift.Bool { get }
+  public func addFullyInitializedHandler(on: Dispatch.DispatchQueue?, invoking: @escaping () -> Swift.Void)
+  public func awaitFullInitialization() async
+  final public func allDevices() -> [CoreDevice.RemoteDevice]
 }
 extension CoreDevice.CapabilityStaticMember where A == CoreDevice.HIDDeviceCapability {
   public static var vendorDefined: CoreDevice.CapabilityStaticMember<CoreDevice.VendorDefinedHIDCapability> { get }
